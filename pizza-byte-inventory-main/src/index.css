@@ -1,0 +1,89 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    
+    --card: 240 10% 6.9%;
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 240 10% 5.9%;
+    --popover-foreground: 0 0% 98%;
+    
+    --primary: 255 92% 76%;
+    --primary-foreground: 0 0% 98%;
+    
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01";
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-secondary/30;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary/50 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary/70;
+  }
+
+  /* Button hover effects */
+  .btn-hover-effect {
+    @apply transition-all duration-200 hover:translate-y-[-2px] hover:shadow-md;
+  }
+
+  /* Card hover effects */
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-md hover:border-primary/50;
+  }
+
+  /* Glass effect for modals and special cards */
+  .glass-effect {
+    @apply bg-secondary/40 backdrop-blur-sm border border-white/10;
+  }
+}
+
+/* Utility classes */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
