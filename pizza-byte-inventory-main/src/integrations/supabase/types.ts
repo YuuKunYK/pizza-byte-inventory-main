@@ -73,35 +73,47 @@ export type Database = {
       }
       inventory_items: {
         Row: {
+          base_unit: Database["public"]["Enums"]["base_unit_type"] | null
           category_id: string | null
           conversion_value: number | null
           cost_per_unit: number
           created_at: string | null
           id: string
+          manual_conversion_note: string | null
           min_stock_threshold: number | null
           name: string
+          purchase_conversion_value: number | null
+          purchase_unit: string | null
           unit_type: Database["public"]["Enums"]["unit_type"]
           updated_at: string | null
         }
         Insert: {
+          base_unit?: Database["public"]["Enums"]["base_unit_type"] | null
           category_id?: string | null
           conversion_value?: number | null
           cost_per_unit: number
           created_at?: string | null
           id?: string
+          manual_conversion_note?: string | null
           min_stock_threshold?: number | null
           name: string
+          purchase_conversion_value?: number | null
+          purchase_unit?: string | null
           unit_type: Database["public"]["Enums"]["unit_type"]
           updated_at?: string | null
         }
         Update: {
+          base_unit?: Database["public"]["Enums"]["base_unit_type"] | null
           category_id?: string | null
           conversion_value?: number | null
           cost_per_unit?: number
           created_at?: string | null
           id?: string
+          manual_conversion_note?: string | null
           min_stock_threshold?: number | null
           name?: string
+          purchase_conversion_value?: number | null
+          purchase_unit?: string | null
           unit_type?: Database["public"]["Enums"]["unit_type"]
           updated_at?: string | null
         }
@@ -121,7 +133,6 @@ export type Database = {
           created_at: string | null
           id: string
           name: string
-          type: string
           updated_at: string | null
         }
         Insert: {
@@ -129,7 +140,6 @@ export type Database = {
           created_at?: string | null
           id?: string
           name: string
-          type: string
           updated_at?: string | null
         }
         Update: {
@@ -137,37 +147,80 @@ export type Database = {
           created_at?: string | null
           id?: string
           name?: string
-          type?: string
           updated_at?: string | null
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          related_id: string
+          related_to: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          related_id: string
+          related_to: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          related_id?: string
+          related_to?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string | null
-          email: string
+          email: string | null
           id: string
           location_id: string | null
-          name: string
-          role: Database["public"]["Enums"]["user_role"]
+          name: string | null
+          role: Database["public"]["Enums"]["user_role"] | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
-          email: string
+          email?: string | null
           id: string
           location_id?: string | null
-          name: string
-          role?: Database["public"]["Enums"]["user_role"]
+          name?: string | null
+          role?: Database["public"]["Enums"]["user_role"] | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
-          email?: string
+          email?: string | null
           id?: string
           location_id?: string | null
-          name?: string
-          role?: Database["public"]["Enums"]["user_role"]
+          name?: string | null
+          role?: Database["public"]["Enums"]["user_role"] | null
           updated_at?: string | null
         }
         Relationships: [
@@ -442,6 +495,7 @@ export type Database = {
       }
     }
     Enums: {
+      base_unit_type: "grams" | "kg" | "ml" | "liter" | "pcs"
       request_status: "pending" | "partial" | "fulfilled" | "rejected"
       unit_type: "grams" | "kg" | "packet" | "quantity" | "liter" | "ml"
       user_role: "admin" | "branch" | "warehouse"

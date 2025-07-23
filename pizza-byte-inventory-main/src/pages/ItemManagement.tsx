@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/components/ui/sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { useInventory } from '@/hooks/useInventory';
 import {
-  Pencil,
+  AlertCircle,
+  Edit,
   Plus,
   Search,
   Trash2,
+  Loader2,
   Package,
   Tag,
-  Loader2
+  HelpCircle,
+  Pencil
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { 
   Table,
   TableBody,
@@ -21,7 +27,17 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import {
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue 
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
   Dialog,
   DialogContent,
   DialogDescription,
@@ -29,25 +45,10 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger
-} from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
-import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/components/ui/sonner';
-import { useAuth } from '@/hooks/useAuth';
-import { useInventory } from '@/hooks/useInventory';
-import { UnitType } from '@/types/inventory';
+import { UnitType, BaseUnitType, getBaseUnitDisplayName, validateConversion } from '@/types/inventory';
+import { UserRole } from '@/types/auth';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const ItemManagement = () => {
   const { user } = useAuth();
@@ -74,6 +75,12 @@ const ItemManagement = () => {
   const [newItemCostPerUnit, setNewItemCostPerUnit] = useState('');
   const [newItemMinThreshold, setNewItemMinThreshold] = useState('');
   const [newItemConversionValue, setNewItemConversionValue] = useState('1');
+  
+  // New conversion field states
+  const [newItemBaseUnit, setNewItemBaseUnit] = useState<BaseUnitType>('pcs');
+  const [newItemPurchaseUnit, setNewItemPurchaseUnit] = useState('');
+  const [newItemPurchaseConversionValue, setNewItemPurchaseConversionValue] = useState('1');
+  const [newItemManualConversionNote, setNewItemManualConversionNote] = useState('');
   
   // Get inventory data
   const {
@@ -246,6 +253,51 @@ const ItemManagement = () => {
     setIsDeleteCategoryDialogOpen(true);
   };
 
+  // Filter categories based on search
+  const filteredCategories = categories.filter(category => 
+    category.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
+  );
+
+  // Filter items based on search
+  const filteredItems = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) ||
+    (item.category?.name && item.category.name.toLowerCase().includes(itemSearchQuery.toLowerCase()))
+  );
+
+  // Loading state
+  if (isLoadingCategories || isLoadingItems) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-lg text-muted-foreground">Loading item management data...</p>
+      </div>
+    );
+  }
+
+  const resetItemForm = () => {
+    setNewItemName('');
+    setNewItemCategory('');
+    setNewItemUnitType('quantity');
+    setNewItemCostPerUnit('');
+    setNewItemMinThreshold('');
+    setNewItemConversionValue('1');
+    setNewItemBaseUnit('pcs');
+    setNewItemPurchaseUnit('');
+    setNewItemPurchaseConversionValue('1');
+    setNewItemManualConversionNote('');
+  };
+
+  // Auto-set conversion value to 1 if purchase unit equals base unit
+  React.useEffect(() => {
+    if (newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase()) {
+      setNewItemPurchaseConversionValue('1');
+    }
+  }, [newItemPurchaseUnit, newItemBaseUnit]);
+
+  // Validation for conversion
+  const isConversionValid = newItemPurchaseUnit ? validateConversion(newItemBaseUnit, newItemPurchaseUnit, parseFloat(newItemPurchaseConversionValue)) : true;
+  const showAutoConversion = newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase();
+
   // Item mutations and handlers
   const handleCreateItem = (e) => {
     e.preventDefault();
@@ -256,7 +308,12 @@ const ItemManagement = () => {
       unit_type: newItemUnitType,
       cost_per_unit: parseFloat(newItemCostPerUnit),
       min_stock_threshold: newItemMinThreshold ? parseFloat(newItemMinThreshold) : undefined,
-      conversion_value: newItemConversionValue ? parseFloat(newItemConversionValue) : undefined
+      conversion_value: newItemConversionValue ? parseFloat(newItemConversionValue) : undefined,
+      // New conversion fields
+      base_unit: newItemBaseUnit,
+      purchase_unit: newItemPurchaseUnit || null,
+      purchase_conversion_value: newItemPurchaseUnit ? parseFloat(newItemPurchaseConversionValue) : null,
+      manual_conversion_note: newItemManualConversionNote || null
     };
     
     createItem(newItem);
@@ -276,7 +333,12 @@ const ItemManagement = () => {
       unit_type: newItemUnitType,
       cost_per_unit: parseFloat(newItemCostPerUnit),
       min_stock_threshold: newItemMinThreshold ? parseFloat(newItemMinThreshold) : null,
-      conversion_value: newItemConversionValue ? parseFloat(newItemConversionValue) : null
+      conversion_value: newItemConversionValue ? parseFloat(newItemConversionValue) : null,
+      // New conversion fields
+      base_unit: newItemBaseUnit,
+      purchase_unit: newItemPurchaseUnit || null,
+      purchase_conversion_value: newItemPurchaseUnit ? parseFloat(newItemPurchaseConversionValue) : null,
+      manual_conversion_note: newItemManualConversionNote || null
     };
     
     updateItem(updatedItem);
@@ -320,6 +382,11 @@ const ItemManagement = () => {
     setNewItemCostPerUnit(item.cost_per_unit.toString());
     setNewItemMinThreshold(item.min_stock_threshold ? item.min_stock_threshold.toString() : '');
     setNewItemConversionValue(item.conversion_value ? item.conversion_value.toString() : '1');
+    // New conversion fields
+    setNewItemBaseUnit(item.base_unit || 'pcs');
+    setNewItemPurchaseUnit(item.purchase_unit || '');
+    setNewItemPurchaseConversionValue(item.purchase_conversion_value ? item.purchase_conversion_value.toString() : '1');
+    setNewItemManualConversionNote(item.manual_conversion_note || '');
     setIsEditItemDialogOpen(true);
   };
 
@@ -327,36 +394,6 @@ const ItemManagement = () => {
     setSelectedItem(item);
     setIsDeleteItemDialogOpen(true);
   };
-
-  const resetItemForm = () => {
-    setNewItemName('');
-    setNewItemCategory('');
-    setNewItemUnitType('quantity');
-    setNewItemCostPerUnit('');
-    setNewItemMinThreshold('');
-    setNewItemConversionValue('1');
-  };
-
-  // Filter categories based on search
-  const filteredCategories = categories.filter(category => 
-    category.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
-  );
-
-  // Filter items based on search
-  const filteredItems = inventoryItems.filter(item =>
-    item.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) ||
-    (item.category?.name && item.category.name.toLowerCase().includes(itemSearchQuery.toLowerCase()))
-  );
-
-  // Loading state
-  if (isLoadingCategories || isLoadingItems) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-        <p className="text-lg text-muted-foreground">Loading item management data...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -677,27 +714,32 @@ const ItemManagement = () => {
 
       {/* Add Item Dialog */}
       <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Add New Inventory Item</DialogTitle>
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pb-4">
+            <DialogTitle className="text-xl font-semibold">Add New Inventory Item</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Create a new inventory item with conversion settings
+            </p>
           </DialogHeader>
-          <form onSubmit={handleCreateItem}>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="text-sm font-medium">Item Name</label>
+          <form onSubmit={handleCreateItem} className="space-y-6">
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium text-foreground border-b pb-2">Basic Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="text-sm font-medium text-foreground">Item Name</label>
                   <Input 
                     placeholder="Enter item name" 
-                    className="mt-1" 
+                    className="mt-2" 
                     value={newItemName}
                     onChange={(e) => setNewItemName(e.target.value)}
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Category</label>
+                  <label className="text-sm font-medium text-foreground">Category</label>
                   <Select value={newItemCategory} onValueChange={setNewItemCategory} required>
-                    <SelectTrigger className="mt-1">
+                    <SelectTrigger className="mt-2">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
@@ -709,66 +751,211 @@ const ItemManagement = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Unit Type</label>
-                  <Select 
-                    value={newItemUnitType} 
-                    onValueChange={(value) => setNewItemUnitType(value as UnitType)}
-                    required
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select unit type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="quantity">Quantity</SelectItem>
-                      <SelectItem value="grams">Grams</SelectItem>
-                      <SelectItem value="kg">Kilogram</SelectItem>
-                      <SelectItem value="liter">Liter</SelectItem>
-                      <SelectItem value="ml">Milliliter</SelectItem>
-                      <SelectItem value="packet">Packet</SelectItem>
-                    </SelectContent>
-                  </Select>
+              </div>
+            </div>
+
+            {/* Unit Conversion Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <h3 className="text-lg font-medium text-foreground">Unit Conversion Setup</h3>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs">Set up how you purchase items vs. how you track them in inventory</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              
+              <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
+                    <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select base unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="grams">Grams (g)</SelectItem>
+                        <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                        <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                        <SelectItem value="liter">Liters (L)</SelectItem>
+                        <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
+                    <Input 
+                      placeholder="e.g., packet, box, can" 
+                      className="mt-2" 
+                      value={newItemPurchaseUnit}
+                      onChange={(e) => setNewItemPurchaseUnit(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      How you buy this item
+                    </p>
+                  </div>
                 </div>
+
+                {newItemPurchaseUnit && (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-foreground">Conversion Value</label>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>How many base units (e.g., grams/ml/pieces) are in one purchase unit?</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <Input 
+                        type="number" 
+                        step="0.01"
+                        min="0.01"
+                        placeholder="Enter conversion value" 
+                        className="mt-2" 
+                        value={newItemPurchaseConversionValue}
+                        onChange={(e) => setNewItemPurchaseConversionValue(e.target.value)}
+                        disabled={showAutoConversion}
+                        required
+                      />
+                      {showAutoConversion && (
+                        <Badge variant="secondary" className="mt-2">
+                          Auto-set to 1 (same unit)
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    {!showAutoConversion && newItemPurchaseUnit && newItemPurchaseConversionValue && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <p className="text-sm text-blue-800">
+                          <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {!isConversionValid && (
+                      <Alert className="border-destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-destructive">
+                          Invalid conversion: When purchase unit equals base unit, conversion must be 1.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+
                 <div>
-                  <label className="text-sm font-medium">Conversion Value</label>
+                  <label className="text-sm font-medium text-foreground">Conversion Note (optional)</label>
                   <Input 
-                    placeholder="e.g. 1 packet = X grams" 
-                    className="mt-1" 
-                    type="number"
-                    value={newItemConversionValue}
-                    onChange={(e) => setNewItemConversionValue(e.target.value)}
+                    placeholder="e.g., 1 large packet of flour" 
+                    className="mt-2" 
+                    value={newItemManualConversionNote}
+                    onChange={(e) => setNewItemManualConversionNote(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    e.g. 1 packet = 2000 grams
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Additional clarification for this conversion
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Pricing & Inventory */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium text-foreground border-b pb-2">Pricing & Inventory</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">Cost Per Unit (PKR)</label>
+                  <label className="text-sm font-medium text-foreground">Cost Per Unit (PKR)</label>
                   <Input 
                     placeholder="Enter cost" 
-                    className="mt-1" 
+                    className="mt-2" 
                     type="number"
+                    step="0.01"
+                    min="0"
                     value={newItemCostPerUnit}
                     onChange={(e) => setNewItemCostPerUnit(e.target.value)}
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Minimum Stock Threshold</label>
+                  <label className="text-sm font-medium text-foreground">Minimum Stock Threshold</label>
                   <Input 
                     placeholder="Enter threshold" 
-                    className="mt-1" 
+                    className="mt-2" 
                     type="number"
+                    min="0"
                     value={newItemMinThreshold}
                     onChange={(e) => setNewItemMinThreshold(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     For low stock alerts
                   </p>
                 </div>
               </div>
             </div>
-            <DialogFooter>
+
+            {/* Legacy System (Collapsible) */}
+            <div className="space-y-4">
+              <details className="group">
+                <summary className="flex items-center justify-between cursor-pointer text-lg font-medium text-foreground border-b pb-2">
+                  <span>Legacy System Fields</span>
+                  <Badge variant="outline" className="text-xs">
+                    Backward Compatibility
+                  </Badge>
+                </summary>
+                <div className="mt-4 p-4 border rounded-lg bg-gray-50/50 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Unit Type (Legacy)</label>
+                      <Select 
+                        value={newItemUnitType} 
+                        onValueChange={(value) => setNewItemUnitType(value as UnitType)}
+                        required
+                      >
+                        <SelectTrigger className="mt-2">
+                          <SelectValue placeholder="Select unit type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="quantity">Quantity</SelectItem>
+                          <SelectItem value="grams">Grams</SelectItem>
+                          <SelectItem value="kg">Kilogram</SelectItem>
+                          <SelectItem value="liter">Liter</SelectItem>
+                          <SelectItem value="ml">Milliliter</SelectItem>
+                          <SelectItem value="packet">Packet</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Legacy Conversion Value</label>
+                      <Input 
+                        placeholder="e.g. 1 packet = X grams" 
+                        className="mt-2" 
+                        type="number"
+                        step="0.01"
+                        value={newItemConversionValue}
+                        onChange={(e) => setNewItemConversionValue(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        e.g. 1 packet = 2000 grams
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <Separator />
+
+            <DialogFooter className="flex justify-end gap-3 pt-4">
               <Button 
                 type="button" 
                 variant="outline" 
@@ -776,17 +963,23 @@ const ItemManagement = () => {
                   setIsAddItemDialogOpen(false);
                   resetItemForm();
                 }}
+                className="min-w-[100px]"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit"
-                disabled={isCreatingItem || !newItemName.trim() || !newItemCategory}
+                disabled={isCreatingItem || !newItemName.trim() || !newItemCategory || !isConversionValid}
+                className="min-w-[120px]"
               >
-                {isCreatingItem && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {isCreatingItem ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Item'
                 )}
-                Create Item
               </Button>
             </DialogFooter>
           </form>
@@ -795,27 +988,32 @@ const ItemManagement = () => {
 
       {/* Edit Item Dialog */}
       <Dialog open={isEditItemDialogOpen} onOpenChange={setIsEditItemDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Edit Inventory Item</DialogTitle>
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pb-4">
+            <DialogTitle className="text-xl font-semibold">Edit Inventory Item</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Update the item details and conversion settings
+            </p>
           </DialogHeader>
-          <form onSubmit={handleEditItem}>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="text-sm font-medium">Item Name</label>
+          <form onSubmit={handleEditItem} className="space-y-6">
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium text-foreground border-b pb-2">Basic Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="text-sm font-medium text-foreground">Item Name</label>
                   <Input 
                     placeholder="Enter item name" 
-                    className="mt-1" 
+                    className="mt-2" 
                     value={newItemName}
                     onChange={(e) => setNewItemName(e.target.value)}
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Category</label>
+                  <label className="text-sm font-medium text-foreground">Category</label>
                   <Select value={newItemCategory} onValueChange={setNewItemCategory} required>
-                    <SelectTrigger className="mt-1">
+                    <SelectTrigger className="mt-2">
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
@@ -827,85 +1025,232 @@ const ItemManagement = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Unit Type</label>
-                  <Select 
-                    value={newItemUnitType} 
-                    onValueChange={(value) => setNewItemUnitType(value as UnitType)}
-                    required
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select unit type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="quantity">Quantity</SelectItem>
-                      <SelectItem value="grams">Grams</SelectItem>
-                      <SelectItem value="kg">Kilogram</SelectItem>
-                      <SelectItem value="liter">Liter</SelectItem>
-                      <SelectItem value="ml">Milliliter</SelectItem>
-                      <SelectItem value="packet">Packet</SelectItem>
-                    </SelectContent>
-                  </Select>
+              </div>
+            </div>
+
+            {/* Unit Conversion Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <h3 className="text-lg font-medium text-foreground">Unit Conversion Setup</h3>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs">Set up how you purchase items vs. how you track them in inventory</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              
+              <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
+                    <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select base unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="grams">Grams (g)</SelectItem>
+                        <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                        <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                        <SelectItem value="liter">Liters (L)</SelectItem>
+                        <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
+                    <Input 
+                      placeholder="e.g., packet, box, can" 
+                      className="mt-2" 
+                      value={newItemPurchaseUnit}
+                      onChange={(e) => setNewItemPurchaseUnit(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      How you buy this item
+                    </p>
+                  </div>
                 </div>
+
+                {newItemPurchaseUnit && (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-foreground">Conversion Value</label>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>How many base units (e.g., grams/ml/pieces) are in one purchase unit?</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <Input 
+                        type="number" 
+                        step="0.01"
+                        min="0.01"
+                        placeholder="Enter conversion value" 
+                        className="mt-2" 
+                        value={newItemPurchaseConversionValue}
+                        onChange={(e) => setNewItemPurchaseConversionValue(e.target.value)}
+                        disabled={showAutoConversion}
+                        required
+                      />
+                      {showAutoConversion && (
+                        <Badge variant="secondary" className="mt-2">
+                          Auto-set to 1 (same unit)
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    {!showAutoConversion && newItemPurchaseUnit && newItemPurchaseConversionValue && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <p className="text-sm text-blue-800">
+                          <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {!isConversionValid && (
+                      <Alert className="border-destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-destructive">
+                          Invalid conversion: When purchase unit equals base unit, conversion must be 1.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+
                 <div>
-                  <label className="text-sm font-medium">Conversion Value</label>
+                  <label className="text-sm font-medium text-foreground">Conversion Note (optional)</label>
                   <Input 
-                    placeholder="e.g. 1 packet = X grams" 
-                    className="mt-1" 
-                    type="number"
-                    value={newItemConversionValue}
-                    onChange={(e) => setNewItemConversionValue(e.target.value)}
+                    placeholder="e.g., 1 large packet of flour" 
+                    className="mt-2" 
+                    value={newItemManualConversionNote}
+                    onChange={(e) => setNewItemManualConversionNote(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    e.g. 1 packet = 2000 grams
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Additional clarification for this conversion
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Pricing & Inventory */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium text-foreground border-b pb-2">Pricing & Inventory</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">Cost Per Unit (PKR)</label>
+                  <label className="text-sm font-medium text-foreground">Cost Per Unit (PKR)</label>
                   <Input 
                     placeholder="Enter cost" 
-                    className="mt-1" 
+                    className="mt-2" 
                     type="number"
+                    step="0.01"
+                    min="0"
                     value={newItemCostPerUnit}
                     onChange={(e) => setNewItemCostPerUnit(e.target.value)}
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Minimum Stock Threshold</label>
+                  <label className="text-sm font-medium text-foreground">Minimum Stock Threshold</label>
                   <Input 
                     placeholder="Enter threshold" 
-                    className="mt-1" 
+                    className="mt-2" 
                     type="number"
+                    min="0"
                     value={newItemMinThreshold}
                     onChange={(e) => setNewItemMinThreshold(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     For low stock alerts
                   </p>
                 </div>
               </div>
             </div>
-            <DialogFooter>
+
+            {/* Legacy System (Collapsible) */}
+            <div className="space-y-4">
+              <details className="group">
+                <summary className="flex items-center justify-between cursor-pointer text-lg font-medium text-foreground border-b pb-2">
+                  <span>Legacy System Fields</span>
+                  <Badge variant="outline" className="text-xs">
+                    Backward Compatibility
+                  </Badge>
+                </summary>
+                <div className="mt-4 p-4 border rounded-lg bg-gray-50/50 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Unit Type (Legacy)</label>
+                      <Select 
+                        value={newItemUnitType} 
+                        onValueChange={(value) => setNewItemUnitType(value as UnitType)}
+                        required
+                      >
+                        <SelectTrigger className="mt-2">
+                          <SelectValue placeholder="Select unit type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="quantity">Quantity</SelectItem>
+                          <SelectItem value="grams">Grams</SelectItem>
+                          <SelectItem value="kg">Kilogram</SelectItem>
+                          <SelectItem value="liter">Liter</SelectItem>
+                          <SelectItem value="ml">Milliliter</SelectItem>
+                          <SelectItem value="packet">Packet</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Legacy Conversion Value</label>
+                      <Input 
+                        placeholder="e.g. 1 packet = X grams" 
+                        className="mt-2" 
+                        type="number"
+                        step="0.01"
+                        value={newItemConversionValue}
+                        onChange={(e) => setNewItemConversionValue(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        e.g. 1 packet = 2000 grams
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <Separator />
+
+            <DialogFooter className="flex justify-end gap-3 pt-4">
               <Button 
                 type="button" 
                 variant="outline" 
-                onClick={() => {
-                  setIsEditItemDialogOpen(false);
-                  setSelectedItem(null);
-                  resetItemForm();
-                }}
+                onClick={() => setIsEditItemDialogOpen(false)}
+                className="min-w-[100px]"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit"
-                disabled={isUpdatingItem || !newItemName.trim() || !newItemCategory}
+                disabled={isUpdatingItem || !newItemName.trim() || !newItemCategory || !isConversionValid}
+                className="min-w-[120px]"
               >
-                {isUpdatingItem && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {isUpdatingItem ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Item'
                 )}
-                Update Item
               </Button>
             </DialogFooter>
           </form>

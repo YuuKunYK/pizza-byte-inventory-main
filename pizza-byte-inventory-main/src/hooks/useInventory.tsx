@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/sonner';
 import { useAuth } from './useAuth';
-import { UnitType } from '@/types/inventory';
+import { UnitType, BaseUnitType } from '@/types/inventory';
 import { UserRole } from '@/types/auth';
 
 interface CreateItemParams {
@@ -12,7 +12,12 @@ interface CreateItemParams {
   unit_type: UnitType;
   cost_per_unit: number;
   min_stock_threshold?: number;
-  conversion_value?: number;
+  conversion_value?: number; // Legacy field
+  // New conversion fields
+  base_unit?: BaseUnitType;
+  purchase_unit?: string;
+  purchase_conversion_value?: number;
+  manual_conversion_note?: string;
 }
 
 interface UpdateItemParams {
@@ -22,21 +27,24 @@ interface UpdateItemParams {
   unit_type?: UnitType;
   cost_per_unit?: number;
   min_stock_threshold?: number;
-  conversion_value?: number;
+  conversion_value?: number; // Legacy field
+  // New conversion fields
+  base_unit?: BaseUnitType;
+  purchase_unit?: string;
+  purchase_conversion_value?: number;
+  manual_conversion_note?: string;
 }
 
 interface UpdateStockParams {
   itemId: string;
   locationId: string;
   updateData: {
-    opening_stock?: number;
     warehouse_receiving?: number;
     local_purchasing?: number;
     transfer_in?: number;
     transfer_out?: number;
     discarded?: number;
     closing_stock?: number;
-    updated_at?: string;
   };
 }
 
@@ -162,8 +170,8 @@ export const useInventory = () => {
   });
 
   const updateItemMutation = useMutation({
-    mutationFn: async (updatedItem: UpdateItemParams) => {
-      const { id, ...itemData } = updatedItem;
+    mutationFn: async (updateData: UpdateItemParams) => {
+      const { id, ...itemData } = updateData;
       const { data, error } = await supabase
         .from('inventory_items')
         .update(itemData)
@@ -175,7 +183,6 @@ export const useInventory = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory_items'] });
-      setSelectedItem(null);
       toast.success('Inventory item updated successfully');
     },
     onError: (error) => {
@@ -188,104 +195,55 @@ export const useInventory = () => {
 
   const updateStockMutation = useMutation({
     mutationFn: async ({ itemId, locationId, updateData }: UpdateStockParams) => {
-      try {
-        // Check if user has permission to update this location's stock
-        if (user?.role !== UserRole.ADMIN && locationId !== user?.locationId) {
-          throw new Error('You do not have permission to update stock for this location');
-        }
+      // Check if stock entry exists for this item and location
+      const { data: existingEntry, error: checkError } = await supabase
+        .from('stock_entries')
+        .select('*')
+        .eq('item_id', itemId)
+        .eq('location_id', locationId)
+        .single();
 
-        const today = new Date().toISOString().split('T')[0];
-        
-        // First, verify the item and location exist
-        const { data: itemData, error: itemError } = await supabase
-          .from('inventory_items')
-          .select('id')
-          .eq('id', itemId)
-          .single();
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
 
-        if (itemError) {
-          throw new Error('Item not found');
-        }
-
-        const { data: locationData, error: locationError } = await supabase
-          .from('locations')
-          .select('id')
-          .eq('id', locationId)
-          .single();
-
-        if (locationError) {
-          throw new Error('Location not found');
-        }
-
-        // Check for existing entry
-        const { data: existingEntry, error: fetchError } = await supabase
+      if (existingEntry) {
+        // Update existing entry
+        const { error } = await supabase
           .from('stock_entries')
-          .select('*')
-          .eq('item_id', itemId)
-          .eq('location_id', locationId)
-          .eq('date', today)
-          .single();
+          .update({
+            ...updateData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingEntry.id);
         
-        if (fetchError && fetchError.code !== 'PGRST116') {
-          throw fetchError;
-        }
-
-        let result;
+        if (error) throw error;
+      } else {
+        // Create new entry
+        const { error } = await supabase
+          .from('stock_entries')
+          .insert({
+            item_id: itemId,
+            location_id: locationId,
+            date: new Date().toISOString().split('T')[0],
+            opening_stock: 0,
+            ...updateData,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
         
-        if (existingEntry) {
-          const { data, error } = await supabase
-            .from('stock_entries')
-            .update({
-              ...updateData,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existingEntry.id)
-            .select();
-          
-          if (error) {
-            if (error.code === '42P17') {
-              throw new Error('Permission error: Please contact your administrator');
-            }
-            throw error;
-          }
-          result = data;
-        } else {
-          const { data, error } = await supabase
-            .from('stock_entries')
-            .insert({
-              item_id: itemId,
-              location_id: locationId,
-              date: today,
-              opening_stock: 0,
-              ...updateData
-            })
-            .select();
-          
-          if (error) {
-            if (error.code === '42P17') {
-              throw new Error('Permission error: Please contact your administrator');
-            }
-            throw error;
-          }
-          result = data;
-        }
-        
-        return result;
-      } catch (error) {
-        console.error('Error in updateStockMutation:', error);
-        throw error;
+        if (error) throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
       setIsUpdateStockDialogOpen(false);
-      setSelectedItem(null);
       toast.success('Stock updated successfully');
     },
     onError: (error) => {
       console.error('Error updating stock:', error);
       toast.error('Failed to update stock', {
-        description: error.message || 'An unexpected error occurred'
+        description: error.message
       });
     }
   });
