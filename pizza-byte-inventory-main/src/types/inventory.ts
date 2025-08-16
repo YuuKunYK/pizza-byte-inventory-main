@@ -71,6 +71,15 @@ export interface RecipeItem {
   updatedAt: string;
 }
 
+export interface RecipeIngredient {
+  id?: string;
+  itemId: string;
+  quantity: number;
+  inventory_item?: InventoryItem;
+  tempId?: string;
+  section?: 'dough' | 'sauce' | 'toppings' | 'other';
+}
+
 export type RequestStatus = 'pending' | 'partial' | 'fulfilled' | 'rejected';
 
 export interface StockRequest {

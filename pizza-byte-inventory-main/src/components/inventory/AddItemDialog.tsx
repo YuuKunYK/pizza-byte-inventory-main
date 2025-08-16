@@ -105,30 +105,30 @@ const AddItemDialog: React.FC<AddItemDialogProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium">Item Name</label>
-              <Input 
-                placeholder="Enter item name" 
-                className="mt-1" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Category</label>
-              <Select value={categoryId} onValueChange={setCategoryId} required>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  <label className="text-sm font-medium">Item Name</label>
+                  <Input 
+                    placeholder="Enter item name" 
+                    className="mt-1" 
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Category</label>
+                  <Select value={categoryId} onValueChange={setCategoryId} required>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
           </div>
 
           {/* Conversion Section */}
@@ -239,61 +239,61 @@ const AddItemDialog: React.FC<AddItemDialogProps> = ({
 
           {/* Legacy fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+                <div>
               <label className="text-sm font-medium">Unit Type (Legacy)</label>
-              <Select value={unitType} onValueChange={(val) => setUnitType(val as UnitType)} required>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select unit" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="grams">Grams</SelectItem>
-                  <SelectItem value="kg">KG</SelectItem>
-                  <SelectItem value="packet">Packet</SelectItem>
-                  <SelectItem value="quantity">Quantity</SelectItem>
-                  <SelectItem value="liter">Liter</SelectItem>
-                  <SelectItem value="ml">ML</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
+                  <Select value={unitType} onValueChange={(val) => setUnitType(val as UnitType)} required>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="grams">Grams</SelectItem>
+                      <SelectItem value="kg">KG</SelectItem>
+                      <SelectItem value="packet">Packet</SelectItem>
+                      <SelectItem value="quantity">Quantity</SelectItem>
+                      <SelectItem value="liter">Liter</SelectItem>
+                      <SelectItem value="ml">ML</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
               <label className="text-sm font-medium">Legacy Conversion Value</label>
-              <Input 
-                type="number" 
-                step="0.01"
-                placeholder="Enter value" 
-                className="mt-1" 
-                value={conversionValue}
-                onChange={(e) => setConversionValue(e.target.value)}
-                required
-              />
+                  <Input 
+                    type="number" 
+                    step="0.01"
+                    placeholder="Enter value" 
+                    className="mt-1" 
+                    value={conversionValue}
+                    onChange={(e) => setConversionValue(e.target.value)}
+                    required
+                  />
             </div>
-          </div>
+                </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Cost Per Unit (PKR)</label>
-              <Input 
-                type="number" 
-                step="0.01"
-                placeholder="Enter cost" 
-                className="mt-1" 
-                value={costPerUnit}
-                onChange={(e) => setCostPerUnit(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Minimum Stock Threshold</label>
-              <Input 
-                type="number" 
-                placeholder="Enter threshold" 
-                className="mt-1" 
-                value={minStockThreshold}
-                onChange={(e) => setMinStockThreshold(e.target.value)}
-                required
-              />
-            </div>
-          </div>
+                <div>
+                  <label className="text-sm font-medium">Cost Per Unit (PKR)</label>
+                  <Input 
+                    type="number" 
+                    step="0.01"
+                    placeholder="Enter cost" 
+                    className="mt-1" 
+                    value={costPerUnit}
+                    onChange={(e) => setCostPerUnit(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Minimum Stock Threshold</label>
+                  <Input 
+                    type="number" 
+                    placeholder="Enter threshold" 
+                    className="mt-1" 
+                    value={minStockThreshold}
+                    onChange={(e) => setMinStockThreshold(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
 
           {/* Initial Stock Section */}
           <div>
@@ -302,13 +302,13 @@ const AddItemDialog: React.FC<AddItemDialogProps> = ({
               {locations.map((location) => (
                 <div key={location.id} className="flex items-center gap-2">
                   <span className="text-sm min-w-[120px]">{location.name}:</span>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={initialStock[location.id] || ''}
-                    onChange={(e) => handleStockChange(location.id, e.target.value)}
+                    <Input 
+                      type="number"
+                      placeholder="0" 
+                      value={initialStock[location.id] || ''}
+                      onChange={(e) => handleStockChange(location.id, e.target.value)}
                     className="w-32"
-                  />
+                    />
                 </div>
               ))}
             </div>

@@ -12,6 +12,7 @@ import ItemManagement from "./pages/ItemManagement";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import LocationsPage from "./pages/admin/locations";
+import ManageUsersPage from "./pages/admin/users";
 import ActivityLogsPage from "./pages/ActivityLogs";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
@@ -200,7 +201,7 @@ const App = () => {
                     }
                   />
                   <Route
-                    path="/locations"
+                    path="/admin/locations"
                     element={
                       <PrivateRoute>
                         <Layout>
@@ -210,14 +211,24 @@ const App = () => {
                     }
                   />
                   <Route
-                    path="/users"
+                    path="/admin/users"
                     element={
                       <PrivateRoute>
                         <Layout>
-                          <Dashboard />
+                          <ManageUsersPage />
                         </Layout>
                       </PrivateRoute>
                     }
+                  />
+                  {/* Redirect from old path for backward compatibility */}
+                  <Route
+                    path="/locations"
+                    element={<Navigate to="/admin/locations" replace />}
+                  />
+                  {/* Redirect from old users path */}
+                  <Route
+                    path="/users"
+                    element={<Navigate to="/admin/users" replace />}
                   />
                   <Route
                     path="/logs"

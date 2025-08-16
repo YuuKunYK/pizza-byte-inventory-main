@@ -37,7 +37,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -94,6 +94,31 @@ const ItemManagement = () => {
     isUpdatingItem
   } = useInventory();
 
+  // Auto-set conversion value to 1 if purchase unit equals base unit
+  React.useEffect(() => {
+    if (newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase()) {
+      setNewItemPurchaseConversionValue('1');
+    }
+  }, [newItemPurchaseUnit, newItemBaseUnit]);
+
+  // Validation for conversion
+  const isConversionValid = newItemPurchaseUnit ? validateConversion(newItemBaseUnit, newItemPurchaseUnit, parseFloat(newItemPurchaseConversionValue)) : true;
+  const showAutoConversion = newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase();
+
+  // Helper functions
+  const resetItemForm = () => {
+    setNewItemName('');
+    setNewItemCategory('');
+    setNewItemUnitType('quantity');
+    setNewItemCostPerUnit('');
+    setNewItemMinThreshold('');
+    setNewItemConversionValue('1');
+    setNewItemBaseUnit('pcs');
+    setNewItemPurchaseUnit('');
+    setNewItemPurchaseConversionValue('1');
+    setNewItemManualConversionNote('');
+  };
+
   // Category mutations
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -136,35 +161,16 @@ const ItemManagement = () => {
   });
 
   const updateCategoryMutation = useMutation({
-    mutationFn: async ({ id, name }: { id: string, name: string }) => {
-      // Use a direct fetch call instead of Supabase client to bypass policies
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL || "https://uajdrfwhfkfbwzgtixtk.supabase.co"}/rest/v1/categories?id=eq.${id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhamRyZndoZmtmYnd6Z3RpeHRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ1NTk2NjksImV4cCI6MjA2MDEzNTY2OX0.x50quc-lHAbMF7Fuse_P3FbKs2nlZTqSulK9SECL5ho",
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhamRyZndoZmtmYnd6Z3RpeHRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ1NTk2NjksImV4cCI6MjA2MDEzNTY2OX0.x50quc-lHAbMF7Fuse_P3FbKs2nlZTqSulK9SECL5ho"}`,
-            'Prefer': 'return=minimal' // Critical - don't return the updated data
-          },
-          body: JSON.stringify({ 
-            name, 
-            updated_at: new Date().toISOString() 
-          })
-        }
-      );
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase
+        .from('categories')
+        .update({ name })
+        .eq('id', id);
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || `Error updating category: ${response.statusText}`);
-      }
-      
-      // Just return success - don't try to get data back
-      return { success: true };
+      if (error) throw error;
+      return { id, name };
     },
     onSuccess: () => {
-      // Refresh the categories data
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setIsEditCategoryDialogOpen(false);
       setSelectedCategory(null);
@@ -181,18 +187,6 @@ const ItemManagement = () => {
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (id: string) => {
-      // Check if category has associated items
-      const { data: itemsWithCategory, error: checkError } = await supabase
-        .from('inventory_items')
-        .select('id')
-        .eq('category_id', id);
-      
-      if (checkError) throw checkError;
-      
-      if (itemsWithCategory.length > 0) {
-        throw new Error('Cannot delete category that has items associated with it');
-      }
-      
       const { error } = await supabase
         .from('categories')
         .delete()
@@ -215,7 +209,31 @@ const ItemManagement = () => {
     }
   });
 
-  // Handle category operations
+  const deleteItemMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      return true;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory_items'] });
+      setIsDeleteItemDialogOpen(false);
+      setSelectedItem(null);
+      toast.success('Item deleted successfully');
+    },
+    onError: (error) => {
+      console.error('Error deleting item:', error);
+      toast.error('Failed to delete item', {
+        description: error.message
+      });
+    }
+  });
+
+  // All handler functions
   const handleCreateCategory = (e) => {
     e.preventDefault();
     if (!newCategoryName.trim()) {
@@ -253,52 +271,6 @@ const ItemManagement = () => {
     setIsDeleteCategoryDialogOpen(true);
   };
 
-  // Filter categories based on search
-  const filteredCategories = categories.filter(category => 
-    category.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
-  );
-
-  // Filter items based on search
-  const filteredItems = inventoryItems.filter(item =>
-    item.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) ||
-    (item.category?.name && item.category.name.toLowerCase().includes(itemSearchQuery.toLowerCase()))
-  );
-
-  // Loading state
-  if (isLoadingCategories || isLoadingItems) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-        <p className="text-lg text-muted-foreground">Loading item management data...</p>
-      </div>
-    );
-  }
-
-  const resetItemForm = () => {
-    setNewItemName('');
-    setNewItemCategory('');
-    setNewItemUnitType('quantity');
-    setNewItemCostPerUnit('');
-    setNewItemMinThreshold('');
-    setNewItemConversionValue('1');
-    setNewItemBaseUnit('pcs');
-    setNewItemPurchaseUnit('');
-    setNewItemPurchaseConversionValue('1');
-    setNewItemManualConversionNote('');
-  };
-
-  // Auto-set conversion value to 1 if purchase unit equals base unit
-  React.useEffect(() => {
-    if (newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase()) {
-      setNewItemPurchaseConversionValue('1');
-    }
-  }, [newItemPurchaseUnit, newItemBaseUnit]);
-
-  // Validation for conversion
-  const isConversionValid = newItemPurchaseUnit ? validateConversion(newItemBaseUnit, newItemPurchaseUnit, parseFloat(newItemPurchaseConversionValue)) : true;
-  const showAutoConversion = newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase();
-
-  // Item mutations and handlers
   const handleCreateItem = (e) => {
     e.preventDefault();
     
@@ -345,30 +317,6 @@ const ItemManagement = () => {
     setIsEditItemDialogOpen(false);
   };
 
-  const deleteItemMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('inventory_items')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
-      return true;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory_items'] });
-      setIsDeleteItemDialogOpen(false);
-      setSelectedItem(null);
-      toast.success('Item deleted successfully');
-    },
-    onError: (error) => {
-      console.error('Error deleting item:', error);
-      toast.error('Failed to delete item', {
-        description: error.message
-      });
-    }
-  });
-
   const handleDeleteItem = () => {
     if (!selectedItem) return;
     deleteItemMutation.mutate(selectedItem.id);
@@ -394,6 +342,27 @@ const ItemManagement = () => {
     setSelectedItem(item);
     setIsDeleteItemDialogOpen(true);
   };
+
+  // Filter categories based on search
+  const filteredCategories = categories.filter(category => 
+    category.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
+  );
+
+  // Filter items based on search
+  const filteredItems = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) ||
+    (item.category?.name && item.category.name.toLowerCase().includes(itemSearchQuery.toLowerCase()))
+  );
+
+  // Loading state
+  if (isLoadingCategories || isLoadingItems) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-lg text-muted-foreground">Loading item management data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -772,24 +741,24 @@ const ItemManagement = () => {
               
               <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                <div>
                     <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
                     <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
                       <SelectTrigger className="mt-2">
                         <SelectValue placeholder="Select base unit" />
-                      </SelectTrigger>
-                      <SelectContent>
+                    </SelectTrigger>
+                    <SelectContent>
                         <SelectItem value="grams">Grams (g)</SelectItem>
                         <SelectItem value="kg">Kilograms (kg)</SelectItem>
                         <SelectItem value="ml">Milliliters (ml)</SelectItem>
                         <SelectItem value="liter">Liters (L)</SelectItem>
                         <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                     <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
-                    <Input 
+                  <Input 
                       placeholder="e.g., packet, box, can" 
                       className="mt-2" 
                       value={newItemPurchaseUnit}
@@ -818,7 +787,7 @@ const ItemManagement = () => {
                         </TooltipProvider>
                       </div>
                       <Input 
-                        type="number" 
+                    type="number"
                         step="0.01"
                         min="0.01"
                         placeholder="Enter conversion value" 
@@ -839,8 +808,8 @@ const ItemManagement = () => {
                       <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                         <p className="text-sm text-blue-800">
                           <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
-                        </p>
-                      </div>
+                  </p>
+                </div>
                     )}
                     
                     {!isConversionValid && (
@@ -974,7 +943,7 @@ const ItemManagement = () => {
               >
                 {isCreatingItem ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating...
                   </>
                 ) : (
@@ -1046,24 +1015,24 @@ const ItemManagement = () => {
               
               <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                <div>
                     <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
                     <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
                       <SelectTrigger className="mt-2">
                         <SelectValue placeholder="Select base unit" />
-                      </SelectTrigger>
-                      <SelectContent>
+                    </SelectTrigger>
+                    <SelectContent>
                         <SelectItem value="grams">Grams (g)</SelectItem>
                         <SelectItem value="kg">Kilograms (kg)</SelectItem>
                         <SelectItem value="ml">Milliliters (ml)</SelectItem>
                         <SelectItem value="liter">Liters (L)</SelectItem>
                         <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                     <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
-                    <Input 
+                  <Input 
                       placeholder="e.g., packet, box, can" 
                       className="mt-2" 
                       value={newItemPurchaseUnit}
@@ -1092,7 +1061,7 @@ const ItemManagement = () => {
                         </TooltipProvider>
                       </div>
                       <Input 
-                        type="number" 
+                    type="number"
                         step="0.01"
                         min="0.01"
                         placeholder="Enter conversion value" 
@@ -1113,8 +1082,8 @@ const ItemManagement = () => {
                       <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                         <p className="text-sm text-blue-800">
                           <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
-                        </p>
-                      </div>
+                  </p>
+                </div>
                     )}
                     
                     {!isConversionValid && (
@@ -1245,7 +1214,7 @@ const ItemManagement = () => {
               >
                 {isUpdatingItem ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Updating...
                   </>
                 ) : (

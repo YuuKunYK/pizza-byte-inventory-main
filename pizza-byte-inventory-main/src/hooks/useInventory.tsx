@@ -66,7 +66,16 @@ export const useInventory = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('inventory_items')
-        .select('*, category:categories(id, name)')
+        .select(`
+          *,
+          category:categories(id, name),
+          base_unit,
+          unit_type,
+          cost_per_unit,
+          purchase_unit,
+          purchase_conversion_value,
+          manual_conversion_note
+        `)
         .order('name');
       
       if (error) throw error;
@@ -197,41 +206,41 @@ export const useInventory = () => {
     mutationFn: async ({ itemId, locationId, updateData }: UpdateStockParams) => {
       // Check if stock entry exists for this item and location
       const { data: existingEntry, error: checkError } = await supabase
-        .from('stock_entries')
-        .select('*')
-        .eq('item_id', itemId)
-        .eq('location_id', locationId)
-        .single();
-
+          .from('stock_entries')
+          .select('*')
+          .eq('item_id', itemId)
+          .eq('location_id', locationId)
+          .single();
+        
       if (checkError && checkError.code !== 'PGRST116') {
         throw checkError;
-      }
-
-      if (existingEntry) {
+        }
+        
+        if (existingEntry) {
         // Update existing entry
         const { error } = await supabase
-          .from('stock_entries')
-          .update({
-            ...updateData,
-            updated_at: new Date().toISOString()
-          })
+            .from('stock_entries')
+            .update({
+              ...updateData,
+              updated_at: new Date().toISOString()
+            })
           .eq('id', existingEntry.id);
-        
+          
         if (error) throw error;
-      } else {
+        } else {
         // Create new entry
         const { error } = await supabase
-          .from('stock_entries')
-          .insert({
-            item_id: itemId,
-            location_id: locationId,
+            .from('stock_entries')
+            .insert({
+              item_id: itemId,
+              location_id: locationId,
             date: new Date().toISOString().split('T')[0],
-            opening_stock: 0,
+              opening_stock: 0,
             ...updateData,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
-        
+          
         if (error) throw error;
       }
     },

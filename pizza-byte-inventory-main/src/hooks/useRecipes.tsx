@@ -1,108 +1,135 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/sonner';
+import { useState } from 'react';
+import type { RecipeTag, TagCategory } from '@/types/recipes';
 
-interface RecipeIngredient {
-  id?: string;
-  itemId: string;
-  quantity: number;
-}
-
-interface CreateRecipeParams {
-  recipe: {
+export interface Recipe {
+  id: string;
     name: string;
     description?: string;
-  };
-  ingredients: RecipeIngredient[];
+  created_at: string;
+  updated_at: string;
+  ingredients: any[];
+  tags?: RecipeTag[];
 }
 
-interface UpdateRecipeParams {
-  recipeId: string;
-  recipe: {
+export interface InventoryItem {
+  id: string;
+  name: string;
+  cost_per_unit: number;
+  unit_type: string;
+  base_unit?: string;
+  category?: {
     name: string;
-    description?: string;
   };
-  ingredients: RecipeIngredient[];
-  deletedIngredientIds?: string[];
 }
 
 export const useRecipes = () => {
-  const queryClient = useQueryClient();
   const [isAddRecipeDialogOpen, setIsAddRecipeDialogOpen] = useState(false);
   const [isEditRecipeDialogOpen, setIsEditRecipeDialogOpen] = useState(false);
-  const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
+  const queryClient = useQueryClient();
+
+  // Fetch recipes with tags
   const { 
     data: recipes = [], 
     isLoading: isLoadingRecipes,
-    isError: isRecipesError,
     error: recipesError
   } = useQuery({
     queryKey: ['recipes'],
-    queryFn: async () => {
-      const { data: recipesData, error: recipesError } = await supabase
+    queryFn: async (): Promise<Recipe[]> => {
+      const { data, error } = await supabase
         .from('recipes')
-        .select('*')
-        .order('name');
-      
-      if (recipesError) throw recipesError;
+        .select(`
+          *,
+          recipe_items(
+            id,
+            quantity,
+            inventory_item:inventory_items(
+              id,
+              name,
+              cost_per_unit,
+              unit_type,
+              base_unit,
+              category:categories(name)
+            )
+          ),
+          recipe_tag_assignments(
+            recipe_tags(
+              id,
+              name,
+              category,
+              color,
+              description
+            )
+          )
+        `)
+        .order('created_at', { ascending: false });
+          
+      if (error) {
+        console.error('Error fetching recipes:', error);
+        throw error;
+      }
 
-      const recipesWithIngredients = await Promise.all(
-        recipesData.map(async (recipe) => {
-          const { data: ingredientsData, error: ingredientsError } = await supabase
-            .from('recipe_items')
-            .select('*, item:inventory_items(id, name, unit_type)')
-            .eq('recipe_id', recipe.id);
-          
-          if (ingredientsError) throw ingredientsError;
-          
-          return {
+      return (data || []).map(recipe => ({
             ...recipe,
-            ingredients: ingredientsData.map(ingredient => ({
-              id: ingredient.id,
-              itemId: ingredient.item_id,
-              name: ingredient.item?.name,
-              quantity: ingredient.quantity,
-              unit: ingredient.item?.unit_type
-            }))
-          };
-        })
-      );
-      
-      return recipesWithIngredients || [];
+        ingredients: recipe.recipe_items?.map(item => ({
+          id: item.id,
+          itemId: item.inventory_item.id,
+          quantity: item.quantity,
+          inventory_item: item.inventory_item
+        })) || [],
+        tags: recipe.recipe_tag_assignments?.map(assignment => assignment.recipe_tags).filter(Boolean) || []
+      }));
     }
   });
 
+  // Fetch inventory items
   const { 
     data: inventoryItems = [], 
-    isLoading: isLoadingItems 
+    isLoading: isLoadingItems,
+    error: itemsError
   } = useQuery({
-    queryKey: ['inventory_items'],
-    queryFn: async () => {
+    queryKey: ['inventory-items'],
+    queryFn: async (): Promise<InventoryItem[]> => {
       const { data, error } = await supabase
         .from('inventory_items')
-        .select('*, category:categories(id, name)')
+        .select(`
+          *,
+          categories(name)
+        `)
         .order('name');
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching inventory items:', error);
+        throw error;
+      }
+
       return data || [];
     }
   });
 
+  // Create recipe mutation
   const createRecipeMutation = useMutation({
-    mutationFn: async ({ recipe, ingredients }: CreateRecipeParams) => {
-      const { data: recipeData, error: recipeError } = await supabase
+    mutationFn: async (params: any) => {
+      const { recipe, ingredients } = params;
+      
+      // Insert recipe
+      const { data: newRecipe, error: recipeError } = await supabase
         .from('recipes')
         .insert(recipe)
-        .select();
+        .select()
+        .single();
       
       if (recipeError) throw recipeError;
       
+      // Insert ingredients
       if (ingredients.length > 0) {
-        const recipeItems = ingredients.map(ingredient => ({
-          recipe_id: recipeData[0].id,
-          item_id: ingredient.itemId,
+        const recipeItems = ingredients.map((ingredient: any) => ({
+          recipe_id: newRecipe.id,
+          inventory_item_id: ingredient.itemId,
           quantity: ingredient.quantity
         }));
         
@@ -113,23 +140,25 @@ export const useRecipes = () => {
         if (itemsError) throw itemsError;
       }
       
-      return recipeData[0];
+      return newRecipe;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      setIsAddRecipeDialogOpen(false);
       toast.success('Recipe created successfully');
+      setIsAddRecipeDialogOpen(false);
     },
     onError: (error) => {
       console.error('Error creating recipe:', error);
-      toast.error('Failed to create recipe', {
-        description: error.message
-      });
+      toast.error('Failed to create recipe');
     }
   });
 
+  // Update recipe mutation
   const updateRecipeMutation = useMutation({
-    mutationFn: async ({ recipeId, recipe, ingredients, deletedIngredientIds }: UpdateRecipeParams) => {
+    mutationFn: async (params: any) => {
+      const { recipeId, recipe, ingredients, deletedIngredientIds } = params;
+      
+      // Update recipe
       const { error: recipeError } = await supabase
         .from('recipes')
         .update(recipe)
@@ -137,7 +166,8 @@ export const useRecipes = () => {
       
       if (recipeError) throw recipeError;
       
-      if (deletedIngredientIds?.length > 0) {
+      // Delete removed ingredients
+      if (deletedIngredientIds && deletedIngredientIds.length > 0) {
         const { error: deleteError } = await supabase
           .from('recipe_items')
           .delete()
@@ -146,23 +176,26 @@ export const useRecipes = () => {
         if (deleteError) throw deleteError;
       }
       
+      // Update/insert ingredients
       for (const ingredient of ingredients) {
         if (ingredient.id) {
+          // Update existing
           const { error: updateError } = await supabase
             .from('recipe_items')
             .update({
-              item_id: ingredient.itemId,
+              inventory_item_id: ingredient.itemId,
               quantity: ingredient.quantity
             })
             .eq('id', ingredient.id);
           
           if (updateError) throw updateError;
         } else {
+          // Insert new
           const { error: insertError } = await supabase
             .from('recipe_items')
             .insert({
               recipe_id: recipeId,
-              item_id: ingredient.itemId,
+              inventory_item_id: ingredient.itemId,
               quantity: ingredient.quantity
             });
           
@@ -170,39 +203,29 @@ export const useRecipes = () => {
         }
       }
       
-      return { id: recipeId };
+      return { recipeId };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      setIsEditRecipeDialogOpen(false);
-      setSelectedRecipe(null);
       toast.success('Recipe updated successfully');
+      setIsEditRecipeDialogOpen(false);
     },
     onError: (error) => {
       console.error('Error updating recipe:', error);
-      toast.error('Failed to update recipe', {
-        description: error.message
-      });
+      toast.error('Failed to update recipe');
     }
   });
 
+  // Delete recipe mutation
   const deleteRecipeMutation = useMutation({
     mutationFn: async (recipeId: string) => {
-      const { error: itemsError } = await supabase
-        .from('recipe_items')
-        .delete()
-        .eq('recipe_id', recipeId);
-      
-      if (itemsError) throw itemsError;
-      
-      const { error: recipeError } = await supabase
+      const { error } = await supabase
         .from('recipes')
         .delete()
         .eq('id', recipeId);
       
-      if (recipeError) throw recipeError;
-      
-      return { id: recipeId };
+      if (error) throw error;
+      return recipeId;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
@@ -210,30 +233,71 @@ export const useRecipes = () => {
     },
     onError: (error) => {
       console.error('Error deleting recipe:', error);
-      toast.error('Failed to delete recipe', {
-        description: error.message
-      });
+      toast.error('Failed to delete recipe');
     }
   });
 
+  // Filter recipes by tags
+  const filterRecipesByTags = (recipes: Recipe[], selectedTags: RecipeTag[]) => {
+    if (selectedTags.length === 0) return recipes;
+    
+    return recipes.filter(recipe => {
+      if (!recipe.tags || recipe.tags.length === 0) return false;
+      
+      // Check if recipe has all selected tags
+      return selectedTags.every(selectedTag => 
+        recipe.tags!.some(recipeTag => recipeTag.id === selectedTag.id)
+      );
+    });
+  };
+
+  // Filter recipes by category
+  const filterRecipesByCategory = (recipes: Recipe[], category: TagCategory, tagIds: string[]) => {
+    if (tagIds.length === 0) return recipes;
+    
+    return recipes.filter(recipe => {
+      if (!recipe.tags || recipe.tags.length === 0) return false;
+      
+      // Check if recipe has any of the selected tags in the specified category
+      return recipe.tags.some(tag => 
+        tag.category === category && tagIds.includes(tag.id)
+      );
+    });
+  };
+
   return {
+    // Data
     recipes,
     inventoryItems,
+    
+    // Loading states
     isLoadingRecipes,
     isLoadingItems,
-    isRecipesError,
+    
+    // Errors
     recipesError,
+    itemsError,
+    
+    // UI state
     isAddRecipeDialogOpen,
     setIsAddRecipeDialogOpen,
     isEditRecipeDialogOpen,
     setIsEditRecipeDialogOpen,
     selectedRecipe,
     setSelectedRecipe,
-    createRecipe: (params: CreateRecipeParams) => createRecipeMutation.mutate(params),
-    updateRecipe: (params: UpdateRecipeParams) => updateRecipeMutation.mutate(params),
-    deleteRecipe: (recipeId: string) => deleteRecipeMutation.mutate(recipeId),
+    
+    // Mutations
+    createRecipe: createRecipeMutation.mutate,
+    updateRecipe: updateRecipeMutation.mutate,
+    deleteRecipe: deleteRecipeMutation.mutate,
+    
+    // Mutation states
     isCreatingRecipe: createRecipeMutation.isPending,
     isUpdatingRecipe: updateRecipeMutation.isPending,
-    isDeletingRecipe: deleteRecipeMutation.isPending
+    isDeletingRecipe: deleteRecipeMutation.isPending,
+    
+    // Filter helpers
+    filterRecipesByTags,
+    filterRecipesByCategory
   };
 };

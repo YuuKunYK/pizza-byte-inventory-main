@@ -58,8 +58,8 @@ const Layout = ({ children }: LayoutProps) => {
 
   // Admin-only menu items
   const adminMenuItems = [
-    { icon: Users, text: 'Manage Users', to: '/users' },
-    { icon: MapPin, text: 'Locations', to: '/locations' },
+    { icon: Users, text: 'Manage Users', to: '/admin/users' },
+    { icon: MapPin, text: 'Locations', to: '/admin/locations' },
     { icon: Settings, text: 'System Settings', to: '/settings' },
   ];
 
