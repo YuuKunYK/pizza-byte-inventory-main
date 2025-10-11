@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChefHat,
   ClipboardList,
+  CreditCard,
   FileSpreadsheet,
   Home,
   LogOut,
@@ -11,10 +12,11 @@ import {
   Package,
   Settings,
   ShoppingCart,
+  Tag,
+  Tags,
   Truck,
   Users,
   X,
-  Tags,
   MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,6 +62,9 @@ const Layout = ({ children }: LayoutProps) => {
   const adminMenuItems = [
     { icon: Users, text: 'Manage Users', to: '/admin/users' },
     { icon: MapPin, text: 'Locations', to: '/admin/locations' },
+    { icon: Tags, text: 'POS Categories', to: '/admin/pos-categories' },
+    { icon: Package, text: 'POS Items', to: '/admin/pos-items' },
+    { icon: Tag, text: 'POS Discounts', to: '/admin/pos-discounts' },
     { icon: Settings, text: 'System Settings', to: '/settings' },
   ];
 
@@ -71,14 +76,21 @@ const Layout = ({ children }: LayoutProps) => {
     { icon: ShoppingCart, text: 'Stock Requests', to: '/requests' },
     { icon: Truck, text: 'Stock Transfers', to: '/transfers' },
     { icon: ChefHat, text: 'Recipes', to: '/recipes' },
-    { icon: FileSpreadsheet, text: 'Sales Entry', to: '/sales' },
     { icon: BarChart3, text: 'Reports', to: '/reports' },
     { icon: ClipboardList, text: 'Activity Logs', to: '/logs' },
   ];
 
+  // POS menu items (Admin and Branch only)
+  const posMenuItems = user?.role === UserRole.WAREHOUSE || user?.role?.toString() === UserRole.WAREHOUSE 
+    ? []
+    : [{ icon: CreditCard, text: 'Point of Sale', to: '/pos' }];
+
   // Filter menu items based on user role
+  // Insert POS menu between Dashboard and Inventory
   const menuItems = [
-    ...commonMenuItems,
+    commonMenuItems[0], // Dashboard
+    ...posMenuItems, // POS (if not warehouse)
+    ...commonMenuItems.slice(1), // Rest of common items
     ...(user?.role === UserRole.ADMIN || user?.role?.toString() === UserRole.ADMIN ? adminMenuItems : []),
   ];
 

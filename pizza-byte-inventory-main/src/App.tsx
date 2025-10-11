@@ -16,7 +16,12 @@ import ManageUsersPage from "./pages/admin/users";
 import ActivityLogsPage from "./pages/ActivityLogs";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
-import SalesEntry from "./pages/SalesEntry";
+import POSMain from "./pages/pos/POSMain";
+import POSAnalytics from "./pages/pos/POSAnalytics";
+import NewOrder from "./pages/pos/NewOrder";
+import POSCategoriesPage from "./pages/admin/pos-categories";
+import POSItemsPage from "./pages/admin/pos-items";
+import POSDiscountsPage from "./pages/admin/pos-discounts";
 import { useAuth } from "./hooks/useAuth";
 import { Loader2 } from "lucide-react";
 import React from "react";
@@ -261,16 +266,68 @@ const App = () => {
                       </PrivateRoute>
                     }
                   />
+                  {/* POS Routes */}
                   <Route
-                    path="/sales"
+                    path="/pos"
                     element={
                       <PrivateRoute>
                         <Layout>
-                          <SalesEntry />
+                          <POSMain />
                         </Layout>
                       </PrivateRoute>
                     }
                   />
+                  <Route
+                    path="/pos/new-order"
+                    element={
+                      <PrivateRoute>
+                        <NewOrder />
+                      </PrivateRoute>
+                    }
+                  />
+                  <Route
+                    path="/pos/analytics"
+                    element={
+                      <PrivateRoute>
+                        <Layout>
+                          <POSAnalytics />
+                        </Layout>
+                      </PrivateRoute>
+                    }
+                  />
+                  {/* Admin POS Management Routes */}
+                  <Route
+                    path="/admin/pos-categories"
+                    element={
+                      <PrivateRoute>
+                        <Layout>
+                          <POSCategoriesPage />
+                        </Layout>
+                      </PrivateRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/pos-items"
+                    element={
+                      <PrivateRoute>
+                        <Layout>
+                          <POSItemsPage />
+                        </Layout>
+                      </PrivateRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/pos-discounts"
+                    element={
+                      <PrivateRoute>
+                        <Layout>
+                          <POSDiscountsPage />
+                        </Layout>
+                      </PrivateRoute>
+                    }
+                  />
+                  {/* Redirect old /sales route to new POS */}
+                  <Route path="/sales" element={<Navigate to="/pos" replace />} />
                   <Route
                     path="/reports"
                     element={
