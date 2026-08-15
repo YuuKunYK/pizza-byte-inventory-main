@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/sonner';
 import { useAuth } from './useAuth';
 import { UnitType, BaseUnitType } from '@/types/inventory';
+import { adjustLocationStock } from '@/lib/erp';
 import { UserRole } from '@/types/auth';
 
 interface CreateItemParams {
@@ -38,7 +39,10 @@ interface UpdateItemParams {
 interface UpdateStockParams {
   itemId: string;
   locationId: string;
-  updateData: {
+  quantity: number;
+  movementType: string;
+  notes?: string;
+  updateData?: {
     warehouse_receiving?: number;
     local_purchasing?: number;
     transfer_in?: number;
@@ -132,8 +136,7 @@ export const useInventory = () => {
         // If user is not admin, they can only see their own location's data
         if (user?.role !== UserRole.ADMIN) {
           query = query.eq('location_id', user?.locationId);
-        } else if (selectedLocation) {
-          // If admin has selected a specific location
+        } else if (selectedLocation && selectedLocation !== 'all') {
           query = query.eq('location_id', selectedLocation);
         }
         
@@ -203,44 +206,49 @@ export const useInventory = () => {
   });
 
   const updateStockMutation = useMutation({
-    mutationFn: async ({ itemId, locationId, updateData }: UpdateStockParams) => {
-      // Check if stock entry exists for this item and location
+    mutationFn: async ({ itemId, locationId, quantity, movementType, notes, updateData }: UpdateStockParams) => {
+      if (quantity && movementType) {
+        return adjustLocationStock({
+          itemId,
+          locationId,
+          quantity,
+          movementType,
+          notes,
+        });
+      }
+
       const { data: existingEntry, error: checkError } = await supabase
-          .from('stock_entries')
-          .select('*')
-          .eq('item_id', itemId)
-          .eq('location_id', locationId)
-          .single();
-        
+        .from('stock_entries')
+        .select('*')
+        .eq('item_id', itemId)
+        .eq('location_id', locationId)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       if (checkError && checkError.code !== 'PGRST116') {
         throw checkError;
-        }
-        
-        if (existingEntry) {
-        // Update existing entry
+      }
+
+      if (existingEntry) {
         const { error } = await supabase
-            .from('stock_entries')
-            .update({
-              ...updateData,
-              updated_at: new Date().toISOString()
-            })
-          .eq('id', existingEntry.id);
-          
-        if (error) throw error;
-        } else {
-        // Create new entry
-        const { error } = await supabase
-            .from('stock_entries')
-            .insert({
-              item_id: itemId,
-              location_id: locationId,
-            date: new Date().toISOString().split('T')[0],
-              opening_stock: 0,
+          .from('stock_entries')
+          .update({
             ...updateData,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-          
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingEntry.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('stock_entries').insert({
+          item_id: itemId,
+          location_id: locationId,
+          date: new Date().toISOString().split('T')[0],
+          opening_stock: 0,
+          ...updateData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
         if (error) throw error;
       }
     },
@@ -273,7 +281,7 @@ export const useInventory = () => {
 
   const getTotalStock = (itemId) => {
     // If viewing all locations, sum up all locations' stock
-    if (user?.role === UserRole.ADMIN && !selectedLocation) {
+    if (user?.role === UserRole.ADMIN && (!selectedLocation || selectedLocation === 'all')) {
       return locations.reduce((total, location) => {
         return total + getCurrentStock(itemId, location.id);
       }, 0);

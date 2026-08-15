@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
@@ -16,6 +16,7 @@ import ManageUsersPage from "./pages/admin/users";
 import ActivityLogsPage from "./pages/ActivityLogs";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
+import Transfers from "./pages/Transfers";
 import POSMain from "./pages/pos/POSMain";
 import POSAnalytics from "./pages/pos/POSAnalytics";
 import NewOrder from "./pages/pos/NewOrder";
@@ -27,6 +28,8 @@ import { Loader2 } from "lucide-react";
 import React from "react";
 import { AuthProvider } from "./contexts/AuthContext";
 import { NotificationsProvider } from "./contexts/NotificationsContext";
+import { RoleGuard } from "./components/auth/RoleGuard";
+import { UserRole } from "./types/auth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,308 +47,213 @@ const LoadingScreen = () => (
   </div>
 );
 
-// Direct Home Page component that doesn't use PrivateRoute
-// This ensures that direct navigation from NotFound works properly
-const HomePage = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  
-  console.log('HomePage direct access:', { isAuthenticated, isLoading });
-
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-  
-  if (!isAuthenticated) {
-    console.log('HomePage: Not authenticated, redirecting to login');
-    window.location.href = '/login';
-    return <LoadingScreen />;
-  }
-  
-  return (
-    <Layout>
-      <Dashboard />
-    </Layout>
-  );
-};
-
-// Simple LoginRoute that redirects to home if already authenticated
 const LoginRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
 
-  console.log('LoginRoute check:', { isAuthenticated, isLoading });
-
-  // Check if already authenticated and force redirect to home
-  React.useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      console.log('Already authenticated, forcing direct redirect to home');
-      window.location.href = '/';
-    }
-  }, [isLoading, isAuthenticated]);
-
-  // Show loading state
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-
-  // Only render login if not authenticated
-  if (!isAuthenticated) {
-    return <>{children}</>;
-  }
-
-  // Show loading while redirect happens
-  return <LoadingScreen />;
-};
-
-// Define the PrivateRoute component inside the app to access useAuth
-const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
-  const navigate = useNavigate();
-
-  console.log('PrivateRoute check:', { 
-    isAuthenticated, 
-    isLoading, 
-    hasUser: !!user,
-    userDetails: user 
-  });
-
-  // Show loading state
-  if (isLoading) {
-    console.log('PrivateRoute: Still loading...');
-    return <LoadingScreen />;
-  }
-
-  // If not authenticated, redirect to login
-  if (!isAuthenticated) {
-    console.log('PrivateRoute: User is NOT authenticated - redirecting to login');
-    // Use direct browser navigation as a more reliable approach
-    window.location.href = '/login';
-    return <LoadingScreen />;
-  }
-
-  // Log authentication success
-  console.log('PrivateRoute: User is authenticated - rendering content');
-  
-  // Allow rendering of children if authenticated
+  if (isLoading) return <LoadingScreen />;
+  if (isAuthenticated) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
-// Root component that checks auth state on initial load
-const AuthWrapper = ({ children }: { children: React.ReactNode }) => {
-  const { isLoading } = useAuth();
-  
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-  
-  return <>{children}</>;
-};
+const AppLayout = ({ children }: { children: React.ReactNode }) => (
+  <Layout>{children}</Layout>
+);
 
-// Wrap the app with BrowserRouter
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        <AuthProvider>
           <TooltipProvider>
             <Toaster />
             <Sonner />
             <NotificationsProvider>
-              <AuthWrapper>
-                <Routes>
-                  <Route 
-                    path="/login" 
-                    element={
-                      <LoginRoute>
-                        <Login />
-                      </LoginRoute>
-                    } 
-                  />
-                  {/* Direct access to home page */}
-                  <Route
-                    path="/"
-                    element={<HomePage />}
-                  />
-                  <Route
-                    path="/inventory"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <Inventory />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/requests"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <StockRequests />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/recipes"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <Recipes />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/item-management"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <ItemManagement />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/locations"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <LocationsPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/users"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <ManageUsersPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* Redirect from old path for backward compatibility */}
-                  <Route
-                    path="/locations"
-                    element={<Navigate to="/admin/locations" replace />}
-                  />
-                  {/* Redirect from old users path */}
-                  <Route
-                    path="/users"
-                    element={<Navigate to="/admin/users" replace />}
-                  />
-                  <Route
-                    path="/logs"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <ActivityLogsPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/settings"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <Settings />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* Additional routes */}
-                  <Route
-                    path="/transfers"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <Dashboard />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* POS Routes */}
-                  <Route
-                    path="/pos"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <POSMain />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/pos/new-order"
-                    element={
-                      <PrivateRoute>
-                        <NewOrder />
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/pos/analytics"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <POSAnalytics />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* Admin POS Management Routes */}
-                  <Route
-                    path="/admin/pos-categories"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <POSCategoriesPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/pos-items"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <POSItemsPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/pos-discounts"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <POSDiscountsPage />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* Redirect old /sales route to new POS */}
-                  <Route path="/sales" element={<Navigate to="/pos" replace />} />
-                  <Route
-                    path="/reports"
-                    element={
-                      <PrivateRoute>
-                        <Layout>
-                          <Reports />
-                        </Layout>
-                      </PrivateRoute>
-                    }
-                  />
-                  {/* Catch-all route for 404 */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </AuthWrapper>
+              <Routes>
+                <Route
+                  path="/login"
+                  element={
+                    <LoginRoute>
+                      <Login />
+                    </LoginRoute>
+                  }
+                />
+                <Route
+                  path="/"
+                  element={
+                    <RoleGuard>
+                      <AppLayout>
+                        <Dashboard />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/inventory"
+                  element={
+                    <RoleGuard>
+                      <AppLayout>
+                        <Inventory />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/requests"
+                  element={
+                    <RoleGuard>
+                      <AppLayout>
+                        <StockRequests />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/recipes"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN, UserRole.BRANCH]}>
+                      <AppLayout>
+                        <Recipes />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/item-management"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <ItemManagement />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/admin/locations"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <LocationsPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/admin/users"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <ManageUsersPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route path="/locations" element={<Navigate to="/admin/locations" replace />} />
+                <Route path="/users" element={<Navigate to="/admin/users" replace />} />
+                <Route
+                  path="/logs"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <ActivityLogsPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <RoleGuard>
+                      <AppLayout>
+                        <Settings />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/transfers"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN, UserRole.WAREHOUSE, UserRole.BRANCH]}>
+                      <AppLayout>
+                        <Transfers />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/pos"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN, UserRole.BRANCH]}>
+                      <AppLayout>
+                        <POSMain />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/pos/new-order"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN, UserRole.BRANCH]}>
+                      <NewOrder />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/pos/analytics"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN, UserRole.BRANCH]}>
+                      <AppLayout>
+                        <POSAnalytics />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/admin/pos-categories"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <POSCategoriesPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/admin/pos-items"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <POSItemsPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/admin/pos-discounts"
+                  element={
+                    <RoleGuard allowedRoles={[UserRole.ADMIN]}>
+                      <AppLayout>
+                        <POSDiscountsPage />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route path="/sales" element={<Navigate to="/pos" replace />} />
+                <Route
+                  path="/reports"
+                  element={
+                    <RoleGuard>
+                      <AppLayout>
+                        <Reports />
+                      </AppLayout>
+                    </RoleGuard>
+                  }
+                />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
             </NotificationsProvider>
           </TooltipProvider>
-        </BrowserRouter>
-      </AuthProvider>
+        </AuthProvider>
+      </BrowserRouter>
     </QueryClientProvider>
   );
 };

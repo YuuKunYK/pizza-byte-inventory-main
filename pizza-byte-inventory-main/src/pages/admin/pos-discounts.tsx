@@ -28,7 +28,7 @@ import { DiscountRule } from '@/types/pos';
 import { Plus, Edit, Trash2, Loader2, Tag } from 'lucide-react';
 
 const POSDiscountsPage = () => {
-  const { discountRules, isLoadingDiscounts, createDiscount, updateDiscount, deleteDiscount, isCreating, isUpdating, isDeleting } = useDiscountRules();
+  const { discountRules, isLoadingDiscounts, createDiscount, updateDiscount, deleteDiscount, isCreating, isUpdating, isDeleting } = useDiscountRules(true);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDiscount, setEditingDiscount] = useState<DiscountRule | null>(null);

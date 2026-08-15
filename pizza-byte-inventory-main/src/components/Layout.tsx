@@ -5,7 +5,6 @@ import {
   ChefHat,
   ClipboardList,
   CreditCard,
-  FileSpreadsheet,
   Home,
   LogOut,
   Menu,
@@ -65,25 +64,34 @@ const Layout = ({ children }: LayoutProps) => {
     { icon: Tags, text: 'POS Categories', to: '/admin/pos-categories' },
     { icon: Package, text: 'POS Items', to: '/admin/pos-items' },
     { icon: Tag, text: 'POS Discounts', to: '/admin/pos-discounts' },
-    { icon: Settings, text: 'System Settings', to: '/settings' },
   ];
 
   // Common menu items for all roles
   const commonMenuItems = [
     { icon: Home, text: 'Dashboard', to: '/' },
     { icon: Package, text: 'Inventory', to: '/inventory' },
-    { icon: Tags, text: 'Item Management', to: '/item-management' },
+    ...(user?.role === UserRole.ADMIN
+      ? [{ icon: Tags, text: 'Item Management', to: '/item-management' }]
+      : []),
     { icon: ShoppingCart, text: 'Stock Requests', to: '/requests' },
     { icon: Truck, text: 'Stock Transfers', to: '/transfers' },
-    { icon: ChefHat, text: 'Recipes', to: '/recipes' },
+    ...(user?.role === UserRole.WAREHOUSE
+      ? []
+      : [{ icon: ChefHat, text: 'Recipes', to: '/recipes' }]),
     { icon: BarChart3, text: 'Reports', to: '/reports' },
-    { icon: ClipboardList, text: 'Activity Logs', to: '/logs' },
+    { icon: Settings, text: 'Settings', to: '/settings' },
+    ...(user?.role === UserRole.ADMIN
+      ? [{ icon: ClipboardList, text: 'Activity Logs', to: '/logs' }]
+      : []),
   ];
 
-  // POS menu items (Admin and Branch only)
-  const posMenuItems = user?.role === UserRole.WAREHOUSE || user?.role?.toString() === UserRole.WAREHOUSE 
-    ? []
-    : [{ icon: CreditCard, text: 'Point of Sale', to: '/pos' }];
+  const posMenuItems =
+    user?.role === UserRole.WAREHOUSE || user?.role?.toString() === UserRole.WAREHOUSE
+      ? []
+      : [
+          { icon: CreditCard, text: 'Point of Sale', to: '/pos' },
+          { icon: BarChart3, text: 'POS Analytics', to: '/pos/analytics' },
+        ];
 
   // Filter menu items based on user role
   // Insert POS menu between Dashboard and Inventory
@@ -169,8 +177,9 @@ const Layout = ({ children }: LayoutProps) => {
               {sidebarOpen && (
                 <div className="flex-1 overflow-hidden">
                   <p className="truncate text-sm font-medium">{user.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {user.role} {user.locationId ? '•' : ''} {user.locationId ? 'Location ID: ' + user.locationId.substring(0, 8) : ''}
+                  <p className="truncate text-xs text-muted-foreground capitalize">
+                    {user.role}
+                    {user.locationName ? ` • ${user.locationName}` : ''}
                   </p>
                 </div>
               )}

@@ -1,54 +1,55 @@
-# Inventory Management System
+# Restaurant ERP
 
-## User Login Information
+Multi-location restaurant operations: inventory, recipes, POS, stock transfers, and reporting.
 
-For testing purposes, use the following credentials:
+## Setup
 
-- **Email**: yousufkhatri2006@gmail.com
-- **Password**: nyp123
-- **Role**: Admin
-- **Location**: Ocean Mall
+1. Install dependencies:
 
-## Setup Instructions
+```
+npm install
+```
 
-1. After cloning the repository, install dependencies:
-   ```
-   npm install
-   ```
+2. Copy environment variables (do not commit secrets):
 
-2. Start the development server:
-   ```
-   npm run dev
-   ```
+```
+cp .env.example .env
+```
 
-3. Note: For development purposes, you may want to disable email confirmation in the Supabase dashboard.
+3. Apply database migrations in the Supabase SQL editor, including:
 
-## Features
+```
+supabase/migrations/20260814_erp_integrity_core.sql
+```
 
-- User authentication (login/signup) with role-based access
-- Inventory management
-- Stock request handling
-- Recipe management
-- Branch and warehouse management
-- Activity logging system for monitoring all changes
-- Comprehensive activity logs with filtering and search capability
+That migration is required for live POS stock deduction, cancel/restore, transfers, and request fulfillment.
 
-## Important Notes
+4. Start the app:
 
-- Admin users have access to all features
-- Branch users can only manage their own inventory and make stock requests
-- Warehouse users can fulfill stock requests and manage inventory
-- All activities in the system are logged for auditability
-- Activity logs track all create, update, delete operations on database records
+```
+npm run dev
+```
 
-## Activity Logging
+## Accounts
 
-The system automatically records the following activities:
-- Inventory item creation, updates, and deletion
-- Stock request creation, fulfillment, and rejection
-- User management operations
-- Stock entry changes with before and after state
-- Recipe management operations
+Staff accounts are created by an administrator under **Manage Users**. Public self-signup is disabled.
 
-This provides a complete audit trail of all changes in the system with user attribution.
+Roles:
 
+- **Admin** — catalog, locations, users, POS menu, all branches
+- **Branch** — POS, own-location inventory, stock requests
+- **Warehouse** — inventory, transfers, fulfilling requests (no POS)
+
+## How the operational loop works
+
+1. Recipes define ingredient quantities per dish.
+2. POS items can be linked to a recipe.
+3. Placing a POS order deducts those ingredients from **that branch's** `stock_entries`.
+4. Cancelling an in-progress order restores the same stock.
+5. Warehouses fulfill branch requests by transferring stock between locations in one transaction.
+
+## Notes
+
+- Link every sellable dish to a recipe or stock will not move.
+- Low-stock and reports use the same branch ledger as POS.
+- Never store live passwords in this README.

@@ -43,6 +43,7 @@ import AddExistingItemDialog from '@/components/inventory/AddExistingItemDialog'
 import UpdateStockDialog from '@/components/inventory/UpdateStockDialog';
 import { UnitType } from '@/types/inventory';
 import { UserRole } from '@/types/auth';
+import { describeConversion, formatStock } from '@/lib/units';
 
 interface CreateItemParams {
   name: string;
@@ -120,17 +121,20 @@ const Inventory = () => {
     updateStock({
       itemId: item_id,
       locationId: location_id,
-      updateData: {
-        warehouse_receiving: quantity,
-        closing_stock: quantity
-      }
+      quantity,
+      movementType: 'warehouse_receiving',
     });
     setIsAddDialogOpen(false);
   };
 
   const handleUpdateStock = (item: InventoryItem) => {
-    // Only allow updating stock if user is admin or if it's their own location
-    if (user?.role === UserRole.ADMIN || user?.role?.toString() === UserRole.ADMIN || selectedLocation === user?.locationId) {
+    const canUpdate =
+      user?.role === UserRole.ADMIN ||
+      user?.role?.toString() === UserRole.ADMIN ||
+      selectedLocation === user?.locationId ||
+      (!selectedLocation && !!user?.locationId);
+
+    if (canUpdate) {
       setSelectedItem(item);
       setIsUpdateStockDialogOpen(true);
     }
@@ -295,7 +299,7 @@ const Inventory = () => {
                 <TableHead>Item Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Current Stock</TableHead>
-                <TableHead>Unit Type</TableHead>
+                <TableHead>Tracked as</TableHead>
                 <TableHead>Cost per Unit</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
@@ -306,8 +310,15 @@ const Inventory = () => {
                 <TableRow key={item.id}>
                   <TableCell>{item.name}</TableCell>
                   <TableCell>{item.category?.name}</TableCell>
-                  <TableCell>{getTotalStock(item.id)}</TableCell>
-                  <TableCell>{item.unit_type}</TableCell>
+                  <TableCell>{formatStock(getTotalStock(item.id), item)}</TableCell>
+                  <TableCell>
+                    <div className="text-sm">
+                      {item.base_unit || item.unit_type}
+                      {describeConversion(item) && (
+                        <p className="text-xs text-muted-foreground">{describeConversion(item)}</p>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>PKR {item.cost_per_unit.toLocaleString()}</TableCell>
                   <TableCell>
                     <Badge 
@@ -348,6 +359,11 @@ const Inventory = () => {
         onOpenChange={setIsUpdateStockDialogOpen}
         item={selectedItem}
         locations={locations}
+        locationId={
+          selectedLocation && selectedLocation !== 'all'
+            ? selectedLocation
+            : user?.locationId
+        }
         getCurrentStock={getCurrentStock}
         onSubmit={updateStock}
         isLoading={isUpdatingStock}

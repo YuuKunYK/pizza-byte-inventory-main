@@ -2,33 +2,29 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { POSSale, POSSaleWithDetails, CreateSaleInput, SalesFilters } from '@/types/pos';
 import { toast } from '@/hooks/use-toast';
-import { useAuth } from './useAuth';
+import { createPosOrder, updatePosOrderStatus as updatePosOrderStatusRpc } from '@/lib/erp';
 
-/**
- * Hook to manage POS sales operations
- */
+const salesSelect = `
+  *,
+  branch:locations(id, name)
+`;
+
 export const usePOSSales = (filters?: SalesFilters) => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
 
-  // Fetch sales with filters
   const {
     data: sales = [],
     isLoading: isLoadingSales,
     error: salesError,
+    refetch,
   } = useQuery<POSSaleWithDetails[]>({
     queryKey: ['pos_sales', filters],
     queryFn: async () => {
       let query = supabase
         .from('pos_sales')
-        .select(`
-          *,
-          branch:locations(id, name),
-          cashier:auth.users(id, email)
-        `)
+        .select(salesSelect)
         .order('created_at', { ascending: false });
 
-      // Apply filters
       if (filters?.startDate) {
         query = query.gte('created_at', filters.startDate);
       }
@@ -53,66 +49,38 @@ export const usePOSSales = (filters?: SalesFilters) => {
         query = query.eq('cashier_id', filters.cashier_id);
       }
 
+      if (filters?.status && filters.status !== 'all') {
+        query = query.eq('status', filters.status);
+      }
+
       const { data, error } = await query;
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as POSSaleWithDetails[];
     },
   });
 
-  // Get single sale by ID
   const getSale = async (id: string): Promise<POSSaleWithDetails | null> => {
     const { data, error } = await supabase
       .from('pos_sales')
-      .select(`
-        *,
-        branch:locations(id, name),
-        cashier:auth.users(id, email)
-      `)
+      .select(salesSelect)
       .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('Error fetching sale:', error);
-      return null;
-    }
-
-    return data;
+    if (error) return null;
+    return data as POSSaleWithDetails;
   };
 
-  // Create sale mutation
   const createSaleMutation = useMutation({
-    mutationFn: async (input: CreateSaleInput) => {
-      const { data, error } = await supabase
-        .from('pos_sales')
-        .insert({
-          items: input.items,
-          subtotal: input.subtotal,
-          discount_type: input.discount_type,
-          discount_value: input.discount_value,
-          discount_amount: input.discount_amount,
-          tax: input.tax,
-          total_amount: input.total_amount,
-          profit: input.profit,
-          payment_method: input.payment_method,
-          order_type: input.order_type,
-          branch_id: input.branch_id,
-          cashier_id: input.cashier_id,
-          notes: input.notes,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: async (input: CreateSaleInput) => createPosOrder(input),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['pos_sales'] });
       queryClient.invalidateQueries({ queryKey: ['pos_analytics'] });
-      queryClient.invalidateQueries({ queryKey: ['inventory_items'] }); // Refresh inventory after sale
+      queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory_movements'] });
       toast({
-        title: 'Sale Completed',
-        description: `Order ${data.order_number} has been processed successfully`,
+        title: 'Order placed',
+        description: `Order ${data.order_number} saved and ingredients deducted from this branch.`,
       });
     },
     onError: (error: Error) => {
@@ -124,9 +92,12 @@ export const usePOSSales = (filters?: SalesFilters) => {
     },
   });
 
-  // Update sale mutation (for admin corrections and status updates)
   const updateSaleMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<CreateSaleInput> | { status: string } }) => {
+      if ('status' in updates && updates.status && Object.keys(updates).length === 1) {
+        return updatePosOrderStatusRpc(id, updates.status);
+      }
+
       const { data, error } = await supabase
         .from('pos_sales')
         .update(updates)
@@ -135,11 +106,12 @@ export const usePOSSales = (filters?: SalesFilters) => {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as POSSale;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pos_sales'] });
       queryClient.invalidateQueries({ queryKey: ['pos_analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
       toast({
         title: 'Order Updated',
         description: 'Order has been updated successfully',
@@ -154,16 +126,13 @@ export const usePOSSales = (filters?: SalesFilters) => {
     },
   });
 
-  // Update order status
   const updateOrderStatus = async (orderId: string, status: string) => {
     return updateSaleMutation.mutateAsync({ id: orderId, updates: { status } });
   };
 
-  // Delete sale mutation (admin only)
   const deleteSaleMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('pos_sales').delete().eq('id', id);
-
       if (error) throw error;
     },
     onSuccess: () => {
@@ -187,6 +156,7 @@ export const usePOSSales = (filters?: SalesFilters) => {
     sales,
     isLoadingSales,
     salesError,
+    refetch,
     getSale,
     createSale: createSaleMutation.mutateAsync,
     updateSale: updateSaleMutation.mutate,
@@ -198,10 +168,7 @@ export const usePOSSales = (filters?: SalesFilters) => {
   };
 };
 
-/**
- * Hook to fetch discount rules
- */
-export const useDiscountRules = () => {
+export const useDiscountRules = (includeInactive = false) => {
   const queryClient = useQueryClient();
 
   const {
@@ -209,48 +176,33 @@ export const useDiscountRules = () => {
     isLoading: isLoadingDiscounts,
     error: discountsError,
   } = useQuery({
-    queryKey: ['discount_rules'],
+    queryKey: ['discount_rules', includeInactive],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('discount_rules')
-        .select('*')
-        .eq('active', true)
-        .order('name', { ascending: true });
-
+      let query = supabase.from('discount_rules').select('*').order('name', { ascending: true });
+      if (!includeInactive) {
+        query = query.eq('active', true);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     },
   });
 
-  // Create discount rule mutation
   const createDiscountMutation = useMutation({
     mutationFn: async (input: any) => {
-      const { data, error } = await supabase
-        .from('discount_rules')
-        .insert(input)
-        .select()
-        .single();
-
+      const { data, error } = await supabase.from('discount_rules').insert(input).select().single();
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discount_rules'] });
-      toast({
-        title: 'Success',
-        description: 'Discount rule created successfully',
-      });
+      toast({ title: 'Success', description: 'Discount rule created successfully' });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
-  // Update discount rule mutation
   const updateDiscountMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
       const { data, error } = await supabase
@@ -259,46 +211,29 @@ export const useDiscountRules = () => {
         .eq('id', id)
         .select()
         .single();
-
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discount_rules'] });
-      toast({
-        title: 'Success',
-        description: 'Discount rule updated successfully',
-      });
+      toast({ title: 'Success', description: 'Discount rule updated successfully' });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
-  // Delete discount rule mutation
   const deleteDiscountMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('discount_rules').delete().eq('id', id);
-
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discount_rules'] });
-      toast({
-        title: 'Success',
-        description: 'Discount rule deleted successfully',
-      });
+      toast({ title: 'Success', description: 'Discount rule deleted successfully' });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -314,4 +249,3 @@ export const useDiscountRules = () => {
     isDeleting: deleteDiscountMutation.isPending,
   };
 };
-

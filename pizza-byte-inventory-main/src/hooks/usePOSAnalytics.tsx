@@ -38,17 +38,19 @@ export const usePOSAnalytics = (filters?: SalesFilters) => {
 
       if (error) throw error;
 
+      const countable = (sales || []).filter((sale) => sale.status !== 'cancelled');
+
       // Calculate analytics from sales data
-      const totalRevenue = sales.reduce((sum, sale) => sum + sale.total_amount, 0);
-      const totalProfit = sales.reduce((sum, sale) => sum + sale.profit, 0);
-      const totalOrders = sales.length;
+      const totalRevenue = countable.reduce((sum, sale) => sum + sale.total_amount, 0);
+      const totalProfit = countable.reduce((sum, sale) => sum + sale.profit, 0);
+      const totalOrders = countable.length;
       const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
       // Calculate top selling items
       const itemSales = new Map<string, { name: string; quantity: number; revenue: number }>();
 
-      sales.forEach((sale) => {
-        const items = sale.items as any[];
+      countable.forEach((sale) => {
+        const items = Array.isArray(sale.items) ? sale.items : [];
         items.forEach((item) => {
           const existing = itemSales.get(item.item_id) || {
             name: item.name,
@@ -77,8 +79,8 @@ export const usePOSAnalytics = (filters?: SalesFilters) => {
         { name: string; totalCost: number; totalRevenue: number; count: number }
       >();
 
-      sales.forEach((sale) => {
-        const items = sale.items as any[];
+      countable.forEach((sale) => {
+        const items = Array.isArray(sale.items) ? sale.items : [];
         items.forEach((item) => {
           const existing = itemMargins.get(item.item_id) || {
             name: item.name,
@@ -109,7 +111,7 @@ export const usePOSAnalytics = (filters?: SalesFilters) => {
 
       // Sales by order type
       const orderTypeMap = new Map<string, { count: number; revenue: number }>();
-      sales.forEach((sale) => {
+      countable.forEach((sale) => {
         const existing = orderTypeMap.get(sale.order_type) || { count: 0, revenue: 0 };
         existing.count += 1;
         existing.revenue += sale.total_amount;
@@ -124,7 +126,7 @@ export const usePOSAnalytics = (filters?: SalesFilters) => {
 
       // Sales by payment method
       const paymentMethodMap = new Map<string, { count: number; revenue: number }>();
-      sales.forEach((sale) => {
+      countable.forEach((sale) => {
         const existing = paymentMethodMap.get(sale.payment_method) || { count: 0, revenue: 0 };
         existing.count += 1;
         existing.revenue += sale.total_amount;

@@ -45,7 +45,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
-import { UnitType, BaseUnitType, getBaseUnitDisplayName, validateConversion } from '@/types/inventory';
+import { UnitType, BaseUnitType, validateConversion } from '@/types/inventory';
+import { describeConversion, isSuspiciousOneToOne, suggestedPurchaseConversion } from '@/lib/units';
+import ConversionSetup from '@/components/inventory/ConversionSetup';
 import { UserRole } from '@/types/auth';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -96,14 +98,19 @@ const ItemManagement = () => {
 
   // Auto-set conversion value to 1 if purchase unit equals base unit
   React.useEffect(() => {
-    if (newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase()) {
+    if (!newItemPurchaseUnit || !newItemBaseUnit) return;
+    if (newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase()) {
       setNewItemPurchaseConversionValue('1');
+      return;
+    }
+    const si = suggestedPurchaseConversion(newItemBaseUnit, newItemPurchaseUnit);
+    if (si && (newItemPurchaseConversionValue === '1' || newItemPurchaseConversionValue === '')) {
+      setNewItemPurchaseConversionValue(String(si));
     }
   }, [newItemPurchaseUnit, newItemBaseUnit]);
 
   // Validation for conversion
   const isConversionValid = newItemPurchaseUnit ? validateConversion(newItemBaseUnit, newItemPurchaseUnit, parseFloat(newItemPurchaseConversionValue)) : true;
-  const showAutoConversion = newItemPurchaseUnit && newItemBaseUnit && newItemPurchaseUnit.toLowerCase() === newItemBaseUnit.toLowerCase();
 
   // Helper functions
   const resetItemForm = () => {
@@ -271,8 +278,24 @@ const ItemManagement = () => {
     setIsDeleteCategoryDialogOpen(true);
   };
 
+  const conversionItem = {
+    base_unit: newItemBaseUnit,
+    purchase_unit: newItemPurchaseUnit,
+    purchase_conversion_value: parseFloat(newItemPurchaseConversionValue),
+  };
+
   const handleCreateItem = (e) => {
     e.preventDefault();
+    if (newItemPurchaseUnit && !isConversionValid) {
+      toast.error('Fix the unit conversion before saving');
+      return;
+    }
+    if (isSuspiciousOneToOne(conversionItem)) {
+      toast.error('Set how many stock units are in one purchase unit', {
+        description: 'Example: 1 crate = 12 bottles, 1 liter = 1000 ml',
+      });
+      return;
+    }
     
     const newItem = {
       name: newItemName,
@@ -297,6 +320,16 @@ const ItemManagement = () => {
     e.preventDefault();
     
     if (!selectedItem) return;
+    if (newItemPurchaseUnit && !isConversionValid) {
+      toast.error('Fix the unit conversion before saving');
+      return;
+    }
+    if (isSuspiciousOneToOne(conversionItem)) {
+      toast.error('Set how many stock units are in one purchase unit', {
+        description: 'Example: 1 crate = 12 bottles, 1 liter = 1000 ml',
+      });
+      return;
+    }
     
     const updatedItem = {
       id: selectedItem.id,
@@ -497,6 +530,7 @@ const ItemManagement = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Unit Type</TableHead>
+                    <TableHead>Conversion</TableHead>
                     <TableHead>Cost (PKR)</TableHead>
                     <TableHead>Min Threshold</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -510,7 +544,10 @@ const ItemManagement = () => {
                         <TableCell>
                           {categories.find(c => c.id === item.category_id)?.name || "Uncategorized"}
                         </TableCell>
-                        <TableCell>{item.unit_type}</TableCell>
+                        <TableCell>{item.base_unit || item.unit_type}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {describeConversion(item) || '1:1'}
+                        </TableCell>
                         <TableCell>PKR {item.cost_per_unit}</TableCell>
                         <TableCell>{item.min_stock_threshold || "—"}</TableCell>
                         <TableCell className="text-right">
@@ -723,120 +760,16 @@ const ItemManagement = () => {
               </div>
             </div>
 
-            {/* Unit Conversion Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <h3 className="text-lg font-medium text-foreground">Unit Conversion Setup</h3>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-xs">Set up how you purchase items vs. how you track them in inventory</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              
-              <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
-                    <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select base unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="grams">Grams (g)</SelectItem>
-                        <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                        <SelectItem value="ml">Milliliters (ml)</SelectItem>
-                        <SelectItem value="liter">Liters (L)</SelectItem>
-                        <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                    <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
-                  <Input 
-                      placeholder="e.g., packet, box, can" 
-                      className="mt-2" 
-                      value={newItemPurchaseUnit}
-                      onChange={(e) => setNewItemPurchaseUnit(e.target.value)}
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      How you buy this item
-                    </p>
-                  </div>
-                </div>
-
-                {newItemPurchaseUnit && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">Conversion Value</label>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>How many base units (e.g., grams/ml/pieces) are in one purchase unit?</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <Input 
-                    type="number"
-                        step="0.01"
-                        min="0.01"
-                        placeholder="Enter conversion value" 
-                        className="mt-2" 
-                        value={newItemPurchaseConversionValue}
-                        onChange={(e) => setNewItemPurchaseConversionValue(e.target.value)}
-                        disabled={showAutoConversion}
-                        required
-                      />
-                      {showAutoConversion && (
-                        <Badge variant="secondary" className="mt-2">
-                          Auto-set to 1 (same unit)
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    {!showAutoConversion && newItemPurchaseUnit && newItemPurchaseConversionValue && (
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                        <p className="text-sm text-blue-800">
-                          <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
-                  </p>
-                </div>
-                    )}
-                    
-                    {!isConversionValid && (
-                      <Alert className="border-destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-destructive">
-                          Invalid conversion: When purchase unit equals base unit, conversion must be 1.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-sm font-medium text-foreground">Conversion Note (optional)</label>
-                  <Input 
-                    placeholder="e.g., 1 large packet of flour" 
-                    className="mt-2" 
-                    value={newItemManualConversionNote}
-                    onChange={(e) => setNewItemManualConversionNote(e.target.value)}
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Additional clarification for this conversion
-                  </p>
-                </div>
-              </div>
-            </div>
+            <ConversionSetup
+              baseUnit={newItemBaseUnit}
+              purchaseUnit={newItemPurchaseUnit}
+              conversionValue={newItemPurchaseConversionValue}
+              note={newItemManualConversionNote}
+              onBaseUnitChange={setNewItemBaseUnit}
+              onPurchaseUnitChange={setNewItemPurchaseUnit}
+              onConversionValueChange={setNewItemPurchaseConversionValue}
+              onNoteChange={setNewItemManualConversionNote}
+            />
 
             {/* Pricing & Inventory */}
             <div className="space-y-4">
@@ -997,120 +930,16 @@ const ItemManagement = () => {
               </div>
             </div>
 
-            {/* Unit Conversion Section */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <h3 className="text-lg font-medium text-foreground">Unit Conversion Setup</h3>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-xs">Set up how you purchase items vs. how you track them in inventory</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              
-              <div className="border rounded-lg p-4 bg-slate-50/50 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="text-sm font-medium text-foreground">Base Unit (for tracking)</label>
-                    <Select value={newItemBaseUnit} onValueChange={(val) => setNewItemBaseUnit(val as BaseUnitType)} required>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select base unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="grams">Grams (g)</SelectItem>
-                        <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                        <SelectItem value="ml">Milliliters (ml)</SelectItem>
-                        <SelectItem value="liter">Liters (L)</SelectItem>
-                        <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                    <label className="text-sm font-medium text-foreground">Purchase Unit (optional)</label>
-                  <Input 
-                      placeholder="e.g., packet, box, can" 
-                      className="mt-2" 
-                      value={newItemPurchaseUnit}
-                      onChange={(e) => setNewItemPurchaseUnit(e.target.value)}
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      How you buy this item
-                    </p>
-                  </div>
-                </div>
-
-                {newItemPurchaseUnit && (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">Conversion Value</label>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>How many base units (e.g., grams/ml/pieces) are in one purchase unit?</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <Input 
-                    type="number"
-                        step="0.01"
-                        min="0.01"
-                        placeholder="Enter conversion value" 
-                        className="mt-2" 
-                        value={newItemPurchaseConversionValue}
-                        onChange={(e) => setNewItemPurchaseConversionValue(e.target.value)}
-                        disabled={showAutoConversion}
-                        required
-                      />
-                      {showAutoConversion && (
-                        <Badge variant="secondary" className="mt-2">
-                          Auto-set to 1 (same unit)
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    {!showAutoConversion && newItemPurchaseUnit && newItemPurchaseConversionValue && (
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                        <p className="text-sm text-blue-800">
-                          <strong>Preview:</strong> 1 {newItemPurchaseUnit} = {newItemPurchaseConversionValue} {getBaseUnitDisplayName(newItemBaseUnit)}
-                  </p>
-                </div>
-                    )}
-                    
-                    {!isConversionValid && (
-                      <Alert className="border-destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-destructive">
-                          Invalid conversion: When purchase unit equals base unit, conversion must be 1.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-sm font-medium text-foreground">Conversion Note (optional)</label>
-                  <Input 
-                    placeholder="e.g., 1 large packet of flour" 
-                    className="mt-2" 
-                    value={newItemManualConversionNote}
-                    onChange={(e) => setNewItemManualConversionNote(e.target.value)}
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Additional clarification for this conversion
-                  </p>
-                </div>
-              </div>
-            </div>
+            <ConversionSetup
+              baseUnit={newItemBaseUnit}
+              purchaseUnit={newItemPurchaseUnit}
+              conversionValue={newItemPurchaseConversionValue}
+              note={newItemManualConversionNote}
+              onBaseUnitChange={setNewItemBaseUnit}
+              onPurchaseUnitChange={setNewItemPurchaseUnit}
+              onConversionValueChange={setNewItemPurchaseConversionValue}
+              onNoteChange={setNewItemManualConversionNote}
+            />
 
             {/* Pricing & Inventory */}
             <div className="space-y-4">

@@ -7,12 +7,14 @@ interface ReceiptPrintProps {
   sale: POSSale;
   branchName?: string;
   branchAddress?: string;
+  cashierName?: string;
 }
 
 export const ReceiptPrint: React.FC<ReceiptPrintProps> = ({
   sale,
   branchName = 'New York Pizza',
   branchAddress = '',
+  cashierName,
 }) => {
   return (
     <div className="hidden print:block w-[80mm] mx-auto p-4 font-mono text-xs">
@@ -41,6 +43,24 @@ export const ReceiptPrint: React.FC<ReceiptPrintProps> = ({
           <span>Payment:</span>
           <span className="uppercase">{sale.payment_method}</span>
         </div>
+        {sale.table_number && (
+          <div className="flex justify-between">
+            <span>Table:</span>
+            <span>{sale.table_number}</span>
+          </div>
+        )}
+        {sale.customer_name && (
+          <div className="flex justify-between">
+            <span>Customer:</span>
+            <span>{sale.customer_name}</span>
+          </div>
+        )}
+        {cashierName && (
+          <div className="flex justify-between">
+            <span>Cashier:</span>
+            <span>{cashierName}</span>
+          </div>
+        )}
       </div>
 
       {/* Items */}
@@ -89,6 +109,18 @@ export const ReceiptPrint: React.FC<ReceiptPrintProps> = ({
           <span>TOTAL:</span>
           <span>{formatCurrency(sale.total_amount)}</span>
         </div>
+        {sale.amount_tendered ? (
+          <>
+            <div className="flex justify-between">
+              <span>Tendered:</span>
+              <span>{formatCurrency(sale.amount_tendered)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Change:</span>
+              <span>{formatCurrency(sale.change_due || 0)}</span>
+            </div>
+          </>
+        ) : null}
       </div>
 
       {/* Notes */}

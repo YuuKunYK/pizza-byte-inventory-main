@@ -73,6 +73,7 @@ import { useRecipeTags } from '@/hooks/useRecipeTags';
 import { useDoughConfig } from '@/hooks/useDoughConfig';
 import { toast } from '@/components/ui/sonner';
 import { getBaseUnitDisplayName } from '@/types/inventory';
+import { formatUnitLabel } from '@/lib/units';
 import { getTagsByCategory, type RecipeTag, type TagCategory } from '@/types/recipes';
 
 interface RecipeIngredient {
@@ -414,7 +415,7 @@ const Recipes = () => {
     if (baseUnit && typeof baseUnit === 'string') {
       return getBaseUnitDisplayName(baseUnit as any);
     }
-    return unitType || '';
+    return formatUnitLabel(unitType) || unitType || '';
   };
 
   // Get ingredients by section for pizza mode
@@ -1608,6 +1609,10 @@ const Recipes = () => {
                         </Badge>
                       </div>
                     </div>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Quantities are in the ingredient stock unit (g, ml, pcs) — not crates or purchase packs.
+                      If milk is tracked in ml, enter 200 for 200 ml, not 0.2 liters.
+                    </p>
                     
                     <div className="space-y-3 max-h-[400px] overflow-y-auto">
                       {editIngredients.map((ingredient, index) => {

@@ -42,7 +42,8 @@ export const calculateDiscountAmount = (
   }
 
   if (discountType === 'percentage') {
-    return Math.round((subtotal * discountValue) / 100);
+    const capped = Math.min(Math.max(discountValue, 0), 100);
+    return Math.round((subtotal * capped) / 100);
   }
 
   // Fixed discount
@@ -70,33 +71,34 @@ export const calculateProfit = (items: CartItem[], discountAmount: number = 0): 
  */
 export const calculateOrderSummary = (
   items: CartItem[],
-  discounts: Discount[] = []
+  discounts: Discount[] = [],
+  taxRate: number = TAX_RATE
 ): OrderSummary => {
   const subtotal = calculateSubtotal(items);
 
-  // Apply discounts sequentially
   let totalDiscount = 0;
   let currentAmount = subtotal;
+  const appliedDiscounts: Discount[] = [];
 
   for (const discount of discounts) {
-    const discountAmount = calculateDiscountAmount(
-      currentAmount,
-      discount.type,
-      discount.value
+    const discountAmount = Math.min(
+      calculateDiscountAmount(currentAmount, discount.type, discount.value),
+      Math.max(currentAmount, 0)
     );
     totalDiscount += discountAmount;
-    currentAmount -= discountAmount;
+    currentAmount = Math.max(currentAmount - discountAmount, 0);
+    appliedDiscounts.push({ ...discount, amount: discountAmount });
   }
 
-  const afterDiscount = subtotal - totalDiscount;
-  const tax = calculateTax(afterDiscount);
+  const afterDiscount = Math.max(subtotal - totalDiscount, 0);
+  const tax = calculateTax(afterDiscount, taxRate);
   const total = afterDiscount + tax;
   const profit = calculateProfit(items, totalDiscount);
 
   return {
     items,
     subtotal,
-    discounts,
+    discounts: appliedDiscounts,
     totalDiscount,
     tax,
     total,
@@ -239,27 +241,31 @@ export const formatDateTime = (date: Date | string): string => {
 /**
  * Get today's date range for filtering
  */
-export const getTodayRange = (): { start: string; end: string } => {
-  const today = new Date();
-  const start = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-  const end = new Date(today.setHours(23, 59, 59, 999)).toISOString();
-  return { start, end };
+export const getTodayRange = (): { start: string; end: string; startDate: string; endDate: string } => {
+  const startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
+  const endDate = new Date();
+  endDate.setHours(23, 59, 59, 999);
+  const start = startDate.toISOString();
+  const end = endDate.toISOString();
+  return { start, end, startDate: start, endDate: end };
 };
 
 /**
  * Get date range for last N days
  */
-export const getLastNDaysRange = (days: number): { start: string; end: string } => {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
+export const getLastNDaysRange = (
+  days: number
+): { start: string; end: string; startDate: string; endDate: string } => {
+  const endDate = new Date();
+  endDate.setHours(23, 59, 59, 999);
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  startDate.setHours(0, 0, 0, 0);
+  const start = startDate.toISOString();
+  const end = endDate.toISOString();
 
-  return {
-    start: start.toISOString(),
-    end: end.toISOString(),
-  };
+  return { start, end, startDate: start, endDate: end };
 };
 
 /**

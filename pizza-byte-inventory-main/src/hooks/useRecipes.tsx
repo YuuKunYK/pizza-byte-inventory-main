@@ -47,12 +47,15 @@ export const useRecipes = () => {
           recipe_items(
             id,
             quantity,
+            item_id,
             inventory_item:inventory_items(
               id,
               name,
               cost_per_unit,
               unit_type,
               base_unit,
+              purchase_unit,
+              purchase_conversion_value,
               category:categories(name)
             )
           ),
@@ -77,7 +80,7 @@ export const useRecipes = () => {
             ...recipe,
         ingredients: recipe.recipe_items?.map(item => ({
           id: item.id,
-          itemId: item.inventory_item.id,
+          itemId: item.inventory_item?.id || item.item_id,
           quantity: item.quantity,
           inventory_item: item.inventory_item
         })) || [],
@@ -129,7 +132,7 @@ export const useRecipes = () => {
       if (ingredients.length > 0) {
         const recipeItems = ingredients.map((ingredient: any) => ({
           recipe_id: newRecipe.id,
-          inventory_item_id: ingredient.itemId,
+          item_id: ingredient.itemId,
           quantity: ingredient.quantity
         }));
         
@@ -183,7 +186,7 @@ export const useRecipes = () => {
           const { error: updateError } = await supabase
             .from('recipe_items')
             .update({
-              inventory_item_id: ingredient.itemId,
+              item_id: ingredient.itemId,
               quantity: ingredient.quantity
             })
             .eq('id', ingredient.id);
@@ -195,7 +198,7 @@ export const useRecipes = () => {
             .from('recipe_items')
             .insert({
               recipe_id: recipeId,
-              inventory_item_id: ingredient.itemId,
+              item_id: ingredient.itemId,
               quantity: ingredient.quantity
             });
           

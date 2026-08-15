@@ -59,6 +59,7 @@ export interface CartItem {
   cost: number; // unit cost in paisa
   total: number; // quantity * price
   image_url?: string;
+  recipe_id?: string | null;
 }
 
 export interface Discount {
@@ -92,6 +93,10 @@ export interface POSSale {
   branch_id: string | null;
   cashier_id: string | null;
   notes?: string;
+  discounts?: Discount[];
+  amount_tendered?: number;
+  change_due?: number;
+  inventory_deducted?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -201,6 +206,8 @@ export interface CreateSaleInput {
   branch_id: string;
   cashier_id: string;
   notes?: string;
+  discounts?: Discount[];
+  amount_tendered?: number;
 }
 
 // Filter and search types
@@ -218,6 +225,7 @@ export interface SalesFilters {
   order_type?: 'dining' | 'takeaway' | 'delivery';
   payment_method?: 'cash' | 'card' | 'wallet';
   cashier_id?: string;
+  status?: OrderStatus | 'all';
 }
 
 // Constants

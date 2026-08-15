@@ -14,6 +14,7 @@ export interface User {
   updatedAt: string;
   role: UserRole | string;
   locationId?: string;
+  locationName?: string;
 }
 
 export interface Location {

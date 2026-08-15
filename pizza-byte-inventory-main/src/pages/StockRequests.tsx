@@ -44,6 +44,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { fulfillStockRequestRpc } from '@/lib/erp';
 
 // New interface for request items
 interface RequestItem {
@@ -422,67 +423,18 @@ const StockRequests = () => {
   // Handle stock request fulfillment with inventory update
   const handleFulfillRequest = async (request, quantity, status) => {
     try {
-      // Get details to make sure we have the latest data
-      const { data, error } = await supabase
-        .from('stock_requests')
-        .select(`
-          *,
-          item:inventory_items(id, name)
-        `)
-        .eq('id', request.id)
-        .single();
-      
-      if (error) throw error;
-      
-      // Validate sender has enough stock
-      const senderCurrentStock = await getCurrentStock(data.item_id, data.from_location_id);
-      
-      if (senderCurrentStock < quantity) {
-        toast.error('Not enough stock to fulfill this request', {
-          description: `You only have ${senderCurrentStock} units available.`
-        });
-        return;
-      }
-      
-      // 1. Update request status
-      await updateRequestMutation.mutateAsync({ 
-        id: request.id, 
-        status, 
-        dispatchedQuantity: quantity 
+      await fulfillStockRequestRpc(request.id, quantity);
+      toast.success(`Stock request ${status === 'fulfilled' ? 'fulfilled' : 'updated'}`, {
+        description: `${quantity} units transferred between locations.`,
       });
-      
-      // 2. Decrease stock at sender's location
-      await updateStockMutation.mutateAsync({
-        itemId: data.item_id,
-        locationId: data.from_location_id,
-        quantity: quantity,
-        isAddition: false
-      });
-      
-      // 3. Increase stock at receiver's location
-      await updateStockMutation.mutateAsync({
-        itemId: data.item_id,
-        locationId: data.to_location_id,
-        quantity: quantity,
-        isAddition: true
-      });
-      
-      // Show success message
-      toast.success(`Stock request ${status === 'fulfilled' ? 'fulfilled' : 'partially fulfilled'}`, {
-        description: `${quantity} units of ${data.item?.name || 'Item'} have been transferred.`
-      });
-      
-      // Close dialog if open
       setIsPartialFulfillmentDialogOpen(false);
-      
-      // Explicitly invalidate queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ['stock_requests'] });
       queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
-      
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ['inventory_movements'] });
+    } catch (error: any) {
       console.error('Error fulfilling request:', error);
       toast.error('Failed to fulfill stock request', {
-        description: error.message
+        description: error.message,
       });
     }
   };

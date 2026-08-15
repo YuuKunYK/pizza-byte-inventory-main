@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { UserRole } from '@/types/auth';
 import { Loader2 } from 'lucide-react';
 import { useInventory } from '@/hooks/useInventory';
 import NotificationsPanel from '@/components/NotificationsPanel';
@@ -80,7 +81,11 @@ const Dashboard = () => {
 
   // Calculate inventory stats
   const totalInventoryValue = inventoryItems.reduce((total, item) => {
-    return total + (item.cost_per_unit * getCurrentStock(item.id, user?.locationId));
+    const qty =
+      user?.role === UserRole.ADMIN
+        ? getTotalStock(item.id)
+        : getCurrentStock(item.id, user?.locationId);
+    return total + item.cost_per_unit * qty;
   }, 0);
 
   const categoriesCount = categories.length;
@@ -90,15 +95,14 @@ const Dashboard = () => {
   // Calculate low stock items for current location
   const lowStockItems = inventoryItems
     .filter(item => {
-      const stock = getCurrentStock(item.id, user?.locationId);
       const status = getStockStatus(item);
-      return (status === 'low' || status === 'critical') && stock > 0;
+      return status === 'low' || status === 'critical';
     })
     .slice(0, 3)
     .map(item => ({
       id: item.id,
       name: item.name,
-      stock: getCurrentStock(item.id, user?.locationId),
+      stock: getTotalStock(item.id),
       threshold: item.min_stock_threshold,
       unit: item.unit_type
     }));

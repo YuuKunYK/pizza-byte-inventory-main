@@ -21,7 +21,10 @@ import {
  * Main POS state management hook
  * Manages cart, discounts, and order calculations
  */
-export const usePOS = (initialOrderType: 'dining' | 'takeaway' | 'delivery' = 'dining') => {
+export const usePOS = (
+  initialOrderType: 'dining' | 'takeaway' | 'delivery' = 'dining',
+  taxRate: number = 0
+) => {
   const [state, setState] = useState<POSState>({
     cart: [],
     selectedCategory: null,
@@ -144,8 +147,8 @@ export const usePOS = (initialOrderType: 'dining' | 'takeaway' | 'delivery' = 'd
 
   // Calculate order summary (memoized)
   const orderSummary: OrderSummary = useMemo(
-    () => calculateOrderSummary(state.cart, state.discounts),
-    [state.cart, state.discounts]
+    () => calculateOrderSummary(state.cart, state.discounts, taxRate),
+    [state.cart, state.discounts, taxRate]
   );
 
   // Validate cart

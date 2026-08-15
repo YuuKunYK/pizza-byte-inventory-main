@@ -8,6 +8,7 @@ import { useInventory } from '@/hooks/useInventory';
 import { useAuth } from '@/hooks/useAuth';
 import { AlertCircle } from 'lucide-react';
 import { UserRole } from '@/types/auth';
+import { describeConversion, formatStock, formatUnitLabel, getBaseUnit, quantityToBase } from '@/lib/units';
 
 interface AddExistingItemDialogProps {
   open: boolean;
@@ -61,22 +62,27 @@ const AddExistingItemDialog: React.FC<AddExistingItemDialogProps> = ({
     setLocationError('');
   };
 
+  const selected = inventoryItems.find((item) => item.id === selectedItem);
+  const conversionHint = selected ? describeConversion(selected) : null;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Parse quantity as integer
-    const quantityValue = parseInt(quantity);
-    if (isNaN(quantityValue) || quantityValue < 1) {
+    const quantityValue = Number(quantity);
+    if (isNaN(quantityValue) || quantityValue <= 0 || !selected) {
       return;
     }
-    
-    const itemData = {
+
+    const baseQty = quantityToBase(
+      quantityValue,
+      selected,
+      selected.purchase_unit ? 'purchase' : 'base'
+    );
+
+    onSubmit({
       item_id: selectedItem,
       location_id: selectedLocation,
-      quantity: quantityValue
-    };
-    
-    onSubmit(itemData);
+      quantity: baseQty,
+    });
   };
 
   // Reset form when dialog closes
@@ -145,7 +151,7 @@ const AddExistingItemDialog: React.FC<AddExistingItemDialogProps> = ({
               <SelectContent>
                 {availableItems.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
-                    {item.name} ({item.unit_type})
+                    {item.name} ({formatUnitLabel(getBaseUnit(item))})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -161,23 +167,32 @@ const AddExistingItemDialog: React.FC<AddExistingItemDialogProps> = ({
             <label className="text-sm font-medium">Quantity</label>
             <Input 
               type="number"
-              step="1"
-              min="1"
-              placeholder="Enter whole number quantity" 
+              step="any"
+              min="0"
+              placeholder={selected?.purchase_unit ? `Quantity in ${selected.purchase_unit}` : 'Quantity'} 
               className="mt-1" 
               value={quantity}
-              onChange={(e) => {
-                const value = e.target.value;
-                // Only allow whole numbers
-                if (value === '' || /^\d+$/.test(value)) {
-                  setQuantity(value);
-                }
-              }}
+              onChange={(e) => setQuantity(e.target.value)}
               required
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Only whole numbers are allowed
+              {conversionHint
+                ? `${conversionHint}. Stock is stored in ${formatUnitLabel(getBaseUnit(selected || {}))}.`
+                : 'Quantity is stored in the item base unit.'}
             </p>
+            {selected && Number(quantity) > 0 && (
+              <p className="mt-1 text-xs font-medium">
+                Will add{' '}
+                {formatStock(
+                  quantityToBase(
+                    Number(quantity),
+                    selected,
+                    selected.purchase_unit ? 'purchase' : 'base'
+                  ),
+                  selected
+                )}
+              </p>
+            )}
           </div>
 
           <DialogFooter className="mt-4">

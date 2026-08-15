@@ -6,7 +6,8 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { POSSaleWithDetails, OrderStatus, formatCurrency } from '@/types/pos';
 import { formatDateTime } from '@/lib/pos-utils';
-import { Clock, User, Hash, DollarSign, CreditCard, Package, CheckCircle, XCircle } from 'lucide-react';
+import { Clock, User, Hash, CreditCard, Package, CheckCircle, XCircle, Printer } from 'lucide-react';
+import { ReceiptPrint, printReceipt } from '@/components/pos/ReceiptPrint';
 
 interface OrderDetailPanelProps {
   order: POSSaleWithDetails | null;
@@ -163,67 +164,89 @@ export const OrderDetailPanel: React.FC<OrderDetailPanelProps> = ({
         </ScrollArea>
 
         {/* Status Actions */}
-        {onUpdateStatus && order.status !== 'completed' && order.status !== 'cancelled' && (
-          <div className="border-t p-4 space-y-2">
-            <h4 className="font-semibold text-sm mb-2">Update Status</h4>
-            <div className="grid grid-cols-2 gap-2">
-              {order.status === 'pending' && (
-                <>
+        <div className="border-t p-4 space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => printReceipt()}
+          >
+            <Printer className="h-4 w-4 mr-1" />
+            Print receipt
+          </Button>
+          <ReceiptPrint sale={order} branchName={order.branch?.name} />
+
+          {onUpdateStatus && order.status !== 'completed' && order.status !== 'cancelled' && (
+            <>
+              <h4 className="font-semibold text-sm mb-2">Update Status</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {order.status === 'pending' && (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={() => onUpdateStatus(order.id, 'preparing')}
+                      disabled={isUpdating}
+                    >
+                      Start Preparing
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onUpdateStatus(order.id, 'cancelled')}
+                      disabled={isUpdating}
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Cancel
+                    </Button>
+                  </>
+                )}
+
+                {order.status === 'preparing' && (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={() => onUpdateStatus(order.id, 'ready')}
+                      disabled={isUpdating}
+                    >
+                      Mark as Ready
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onUpdateStatus(order.id, 'cancelled')}
+                      disabled={isUpdating}
+                    >
+                      Cancel & restore stock
+                    </Button>
+                  </>
+                )}
+
+                {order.status === 'ready' && (
                   <Button
                     size="sm"
-                    onClick={() => onUpdateStatus(order.id, 'preparing')}
+                    onClick={() => onUpdateStatus(order.id, 'served')}
                     disabled={isUpdating}
+                    className="col-span-2"
                   >
-                    Start Preparing
+                    Mark as Served
                   </Button>
+                )}
+
+                {order.status === 'served' && (
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => onUpdateStatus(order.id, 'cancelled')}
+                    onClick={() => onUpdateStatus(order.id, 'completed')}
                     disabled={isUpdating}
+                    className="col-span-2"
                   >
-                    <XCircle className="h-4 w-4 mr-1" />
-                    Cancel
+                    <CheckCircle className="h-4 w-4 mr-1" />
+                    Complete Order
                   </Button>
-                </>
-              )}
-
-              {order.status === 'preparing' && (
-                <Button
-                  size="sm"
-                  onClick={() => onUpdateStatus(order.id, 'ready')}
-                  disabled={isUpdating}
-                  className="col-span-2"
-                >
-                  Mark as Ready
-                </Button>
-              )}
-
-              {order.status === 'ready' && (
-                <Button
-                  size="sm"
-                  onClick={() => onUpdateStatus(order.id, 'served')}
-                  disabled={isUpdating}
-                  className="col-span-2"
-                >
-                  Mark as Served
-                </Button>
-              )}
-
-              {order.status === 'served' && (
-                <Button
-                  size="sm"
-                  onClick={() => onUpdateStatus(order.id, 'completed')}
-                  disabled={isUpdating}
-                  className="col-span-2"
-                >
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Complete Order
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
