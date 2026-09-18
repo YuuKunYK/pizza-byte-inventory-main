@@ -32,58 +32,63 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { usePOSCategories, usePOSItems } from '@/hooks/usePOSCategories';
 import { useRecipes } from '@/hooks/useRecipes';
-import { POSItemWithDetails } from '@/types/pos';
+import { useInventory } from '@/hooks/useInventory';
+import { POSItemWithDetails, POSItemLinkMode, getPOSItemLinkMode } from '@/types/pos';
 import { formatCurrency, pkrToPaisa, paisaToPkr } from '@/types/pos';
-import { Plus, Edit, Trash2, ImageOff, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, ImageOff, Loader2, AlertTriangle } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+
+const emptyForm = {
+  name: '',
+  category_id: '',
+  subcategory_id: '',
+  price: '',
+  link_mode: 'recipe' as POSItemLinkMode,
+  recipe_id: '',
+  inventory_item_id: '',
+  inventory_qty: '1',
+  available: true,
+  image_url: '',
+  description: '',
+};
 
 const POSItemsPage = () => {
   const { items, isLoadingItems, createItem, updateItem, deleteItem, isCreating, isUpdating, isDeleting } = usePOSItems();
   const { categories, parentCategories, isLoadingCategories } = usePOSCategories();
-  const { recipes, isLoadingRecipes } = useRecipes();
+  const { recipes } = useRecipes();
+  const { inventoryItems } = useInventory();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<POSItemWithDetails | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    category_id: '',
-    subcategory_id: '',
-    price: '',
-    recipe_id: '',
-    available: true,
-    image_url: '',
-    description: '',
-  });
+  const [formData, setFormData] = useState(emptyForm);
 
   // Get subcategories for selected parent category
   const subcategories = categories.filter(
     (cat) => cat.parent_category_id === formData.category_id
   );
 
+  const unlinkedCount = items.filter((item) => getPOSItemLinkMode(item) === 'unlinked').length;
+
   const handleOpenDialog = (item?: POSItemWithDetails) => {
     if (item) {
       setEditingItem(item);
+      const mode = getPOSItemLinkMode(item);
       setFormData({
         name: item.name,
         category_id: item.category_id || '',
         subcategory_id: item.subcategory_id || '',
         price: paisaToPkr(item.price).toString(),
+        link_mode: mode === 'unlinked' ? 'recipe' : mode,
         recipe_id: item.recipe_id || '',
+        inventory_item_id: item.inventory_item_id || '',
+        inventory_qty: String(item.inventory_qty ?? 1),
         available: item.available,
         image_url: item.image_url || '',
         description: item.description || '',
       });
     } else {
       setEditingItem(null);
-      setFormData({
-        name: '',
-        category_id: '',
-        subcategory_id: '',
-        price: '',
-        recipe_id: '',
-        available: true,
-        image_url: '',
-        description: '',
-      });
+      setFormData(emptyForm);
     }
     setIsDialogOpen(true);
   };
@@ -91,12 +96,32 @@ const POSItemsPage = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (formData.link_mode === 'recipe' && !formData.recipe_id) {
+      // Allowed: existing live catalogs have drinks and other SKUs with no recipe.
+    }
+    if (formData.link_mode === 'stock_item' && !formData.inventory_item_id) {
+      toast({
+        title: 'Stock item required',
+        description: 'Pick the inventory item this menu item sells.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const inventoryQty = parseFloat(formData.inventory_qty);
+    if (formData.link_mode === 'stock_item' && (!Number.isFinite(inventoryQty) || inventoryQty <= 0)) {
+      toast({ title: 'Invalid quantity', description: 'Units per sale must be greater than zero.', variant: 'destructive' });
+      return;
+    }
+
     const data = {
       name: formData.name,
       category_id: formData.category_id || null,
       subcategory_id: formData.subcategory_id || null,
       price: pkrToPaisa(parseFloat(formData.price)),
-      recipe_id: formData.recipe_id && formData.recipe_id !== 'none' ? formData.recipe_id : null,
+      recipe_id: formData.link_mode === 'recipe' && formData.recipe_id ? formData.recipe_id : null,
+      inventory_item_id: formData.link_mode === 'stock_item' ? formData.inventory_item_id : null,
+      inventory_qty: formData.link_mode === 'stock_item' ? inventoryQty : 1,
+      inventory_tracked: formData.link_mode !== 'untracked',
       available: formData.available,
       image_url: formData.image_url || undefined,
       description: formData.description || undefined,
@@ -142,6 +167,20 @@ const POSItemsPage = () => {
         </p>
       </div>
 
+      {unlinkedCount > 0 && (
+        <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">
+              {unlinkedCount} menu {unlinkedCount === 1 ? 'item is' : 'items are'} not linked to stock
+            </p>
+            <p className="text-muted-foreground">
+              The register blocks these items until each one is linked to a recipe or a stock item, or marked as not stock-tracked.
+            </p>
+          </div>
+        </div>
+      )}
+
       <Separator />
 
       {/* Items List */}
@@ -159,7 +198,7 @@ const POSItemsPage = () => {
                 <TableHead>Price</TableHead>
                 <TableHead>Cost</TableHead>
                 <TableHead>Margin</TableHead>
-                <TableHead>Recipe</TableHead>
+                <TableHead>Stock link</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -193,11 +232,23 @@ const POSItemsPage = () => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {item.recipe ? (
-                        <Badge variant="outline">{item.recipe.name}</Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No recipe</span>
-                      )}
+                      {(() => {
+                        const mode = getPOSItemLinkMode(item);
+                        if (mode === 'recipe') {
+                          return <Badge variant="outline">Recipe: {item.recipe?.name ?? 'linked'}</Badge>;
+                        }
+                        if (mode === 'stock_item') {
+                          return (
+                            <Badge variant="outline">
+                              Stock: {item.inventory_item?.name ?? 'linked'} x{item.inventory_qty}
+                            </Badge>
+                          );
+                        }
+                        if (mode === 'untracked') {
+                          return <Badge variant="secondary">Not tracked</Badge>;
+                        }
+                        return <Badge variant="destructive">Unlinked</Badge>;
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge variant={item.available ? 'default' : 'secondary'}>
@@ -313,27 +364,90 @@ const POSItemsPage = () => {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="recipe">Link to Recipe (Optional)</Label>
-              <Select
-                value={formData.recipe_id}
-                onValueChange={(value) => setFormData({ ...formData, recipe_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select recipe for auto-cost calculation" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No recipe</SelectItem>
-                  {recipes?.map((recipe: any) => (
-                    <SelectItem key={recipe.id} value={recipe.id}>
-                      {recipe.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Linking a recipe automatically calculates cost and deducts inventory on sale
-              </p>
+            <div className="space-y-3 rounded-md border p-4">
+              <div className="space-y-2">
+                <Label htmlFor="link_mode">Stock link *</Label>
+                <Select
+                  value={formData.link_mode}
+                  onValueChange={(value: POSItemLinkMode) => setFormData({ ...formData, link_mode: value })}
+                >
+                  <SelectTrigger id="link_mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recipe">Recipe (ingredients are deducted)</SelectItem>
+                    <SelectItem value="stock_item">Stock item (sold 1:1, e.g. bottled drink)</SelectItem>
+                    <SelectItem value="untracked">Not stock-tracked (service charge, fee)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.link_mode === 'recipe' && (
+                <div className="space-y-2">
+                  <Label htmlFor="recipe">Recipe *</Label>
+                  <Select
+                    value={formData.recipe_id}
+                    onValueChange={(value) => setFormData({ ...formData, recipe_id: value })}
+                  >
+                    <SelectTrigger id="recipe">
+                      <SelectValue placeholder="Select recipe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {recipes?.map((recipe: any) => (
+                        <SelectItem key={recipe.id} value={recipe.id}>
+                          {recipe.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Cost is calculated from the recipe and its ingredients leave the branch on every sale.
+                  </p>
+                </div>
+              )}
+
+              {formData.link_mode === 'stock_item' && (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="inventory_item">Inventory item *</Label>
+                    <Select
+                      value={formData.inventory_item_id}
+                      onValueChange={(value) => setFormData({ ...formData, inventory_item_id: value })}
+                    >
+                      <SelectTrigger id="inventory_item">
+                        <SelectValue placeholder="Select stock item" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {inventoryItems.map((inv) => (
+                          <SelectItem key={inv.id} value={inv.id}>
+                            {inv.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="inventory_qty">Units per sale *</Label>
+                    <Input
+                      id="inventory_qty"
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={formData.inventory_qty}
+                      onChange={(e) => setFormData({ ...formData, inventory_qty: e.target.value })}
+                    />
+                  </div>
+                  <p className="col-span-3 text-xs text-muted-foreground">
+                    Each sale removes this many base units of the stock item from the branch.
+                  </p>
+                </div>
+              )}
+
+              {formData.link_mode === 'untracked' && (
+                <p className="text-xs text-muted-foreground">
+                  This item will never move stock. Use only for fees and charges, never for food or drink.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">

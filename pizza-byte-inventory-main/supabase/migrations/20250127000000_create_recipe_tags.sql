@@ -1,8 +1,14 @@
 -- Create recipe tagging system for pizza sizes and types
 -- Migration: 20250127_create_recipe_tags.sql
 
--- Create tag categories enum
-CREATE TYPE tag_category AS ENUM ('size', 'type');
+-- Create tag categories enum. 'flavor' is included up front because the next
+-- migration cannot both add an enum value and use it in the same transaction.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tag_category') THEN
+    CREATE TYPE tag_category AS ENUM ('size', 'type', 'flavor');
+  END IF;
+END $$;
 
 -- Create recipe_tags table
 CREATE TABLE IF NOT EXISTS public.recipe_tags (

@@ -3,13 +3,29 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   POSCategory,
   POSCategoryWithSubcategories,
-  POSItem,
   POSItemWithDetails,
   CreatePOSCategoryInput,
   CreatePOSItemInput,
   POSItemFilters,
 } from '@/types/pos';
 import { toast } from '@/hooks/use-toast';
+
+const NEW_POS_ITEM_COLUMNS = ['inventory_item_id', 'inventory_qty', 'inventory_tracked'] as const;
+
+const isMissingColumnError = (error: { message?: string; code?: string } | null) => {
+  const message = error?.message?.toLowerCase() || '';
+  return (
+    NEW_POS_ITEM_COLUMNS.some((column) => message.includes(column)) ||
+    message.includes('schema cache') ||
+    error?.code === 'PGRST204'
+  );
+};
+
+const stripNewPosItemColumns = (input: Record<string, unknown>) => {
+  const next = { ...input };
+  for (const column of NEW_POS_ITEM_COLUMNS) delete next[column];
+  return next;
+};
 
 /**
  * Hook to fetch and manage POS categories
@@ -152,52 +168,60 @@ export const usePOSItems = (filters?: POSItemFilters) => {
   } = useQuery<POSItemWithDetails[]>({
     queryKey: ['pos_items', filters],
     queryFn: async () => {
-      let query = supabase
-        .from('pos_items')
-        .select(`
+      const selectWithStockLink = `
+          *,
+          category:pos_categories!pos_items_category_id_fkey(id, name),
+          subcategory:pos_categories!pos_items_subcategory_id_fkey(id, name),
+          recipe:recipes(id, name),
+          inventory_item:inventory_items(id, name, base_unit, unit_type)
+        `;
+      const selectLegacy = `
           *,
           category:pos_categories!pos_items_category_id_fkey(id, name),
           subcategory:pos_categories!pos_items_subcategory_id_fkey(id, name),
           recipe:recipes(id, name)
-        `);
+        `;
 
-      // Apply filters
-      if (filters?.category_id) {
-        query = query.eq('category_id', filters.category_id);
+      const run = async (select: string) => {
+        let query = supabase.from('pos_items').select(select);
+        if (filters?.category_id) query = query.eq('category_id', filters.category_id);
+        if (filters?.subcategory_id) query = query.eq('subcategory_id', filters.subcategory_id);
+        if (filters?.available !== undefined) query = query.eq('available', filters.available);
+        if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
+        query = query.order('name', { ascending: true });
+        return query;
+      };
+
+      let { data, error } = await run(selectWithStockLink);
+      if (error) {
+        const missingLink =
+          error.message?.includes('inventory_item') ||
+          error.message?.includes('inventory_item_id') ||
+          error.code === 'PGRST200' ||
+          error.code === 'PGRST204';
+        if (!missingLink) throw error;
+        const fallback = await run(selectLegacy);
+        if (fallback.error) throw fallback.error;
+        data = fallback.data;
       }
 
-      if (filters?.subcategory_id) {
-        query = query.eq('subcategory_id', filters.subcategory_id);
-      }
-
-      if (filters?.available !== undefined) {
-        query = query.eq('available', filters.available);
-      }
-
-      if (filters?.search) {
-        query = query.ilike('name', `%${filters.search}%`);
-      }
-
-      query = query.order('name', { ascending: true });
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      return data || [];
+      return (data || []) as unknown as POSItemWithDetails[];
     },
   });
 
   // Create item mutation
   const createItemMutation = useMutation({
     mutationFn: async (input: CreatePOSItemInput) => {
-      const { data, error } = await supabase
+      const { data, error } = await supabase.from('pos_items').insert(input).select().single();
+      if (!error) return data;
+      if (!isMissingColumnError(error)) throw error;
+      const { data: retry, error: retryError } = await supabase
         .from('pos_items')
-        .insert(input)
+        .insert(stripNewPosItemColumns(input as unknown as Record<string, unknown>))
         .select()
         .single();
-
-      if (error) throw error;
-      return data;
+      if (retryError) throw retryError;
+      return retry;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pos_items'] });
@@ -218,15 +242,17 @@ export const usePOSItems = (filters?: POSItemFilters) => {
   // Update item mutation
   const updateItemMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<CreatePOSItemInput> }) => {
-      const { data, error } = await supabase
+      const { data, error } = await supabase.from('pos_items').update(updates).eq('id', id).select().single();
+      if (!error) return data;
+      if (!isMissingColumnError(error)) throw error;
+      const { data: retry, error: retryError } = await supabase
         .from('pos_items')
-        .update(updates)
+        .update(stripNewPosItemColumns(updates as unknown as Record<string, unknown>))
         .eq('id', id)
         .select()
         .single();
-
-      if (error) throw error;
-      return data;
+      if (retryError) throw retryError;
+      return retry;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pos_items'] });

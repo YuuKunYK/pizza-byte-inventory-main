@@ -15,6 +15,8 @@ import { toast } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { ENTITY_LABELS, ENTITY_TYPES, EntityType as LogEntityType } from '@/lib/activity-logger';
+import { formatCurrency } from '@/types/pos';
 
 // Type definitions
 interface ActivityLog {
@@ -30,10 +32,10 @@ interface ActivityLog {
   user?: {
     name: string;
     email: string;
-  };
+  } | null;
   location?: {
     name: string;
-  };
+  } | null;
 }
 
 interface Location {
@@ -41,8 +43,29 @@ interface Location {
   name: string;
 }
 
-type EntityType = 'inventory_items' | 'stock_requests' | 'stock_entries' | 'recipes' | 'profiles' | 'locations' | 'sales' | 'all';
-type ActionType = 'create' | 'update' | 'delete' | 'fulfill' | 'reject' | 'dispatch' | 'all';
+type EntityType = LogEntityType | 'all';
+type ActionType = string;
+
+const ACTION_OPTIONS = [
+  'create',
+  'update',
+  'delete',
+  'fulfill',
+  'reject',
+  'dispatch',
+  'created',
+  'updated',
+  'deleted',
+  'order_created',
+  'order_status_changed',
+  'order_cancelled',
+  'stock_adjusted',
+  'stock_transferred',
+  'request_fulfilled',
+  'request_partially_fulfilled',
+];
+
+const PAGE_SIZE = 200;
 
 export default function ActivityLogsPage() {
   const { user } = useAuth();
@@ -87,87 +110,45 @@ export default function ActivityLogsPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      // Use a simpler query without joins first to see if that works
-      let query = supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Apply filters
-      if (filters.entity_type !== 'all') {
-        query = query.eq('entity_type', filters.entity_type);
-      }
-
-      if (filters.action !== 'all') {
-        query = query.eq('action', filters.action);
-      }
-
-      if (filters.location_id !== 'all') {
-        query = query.eq('location_id', filters.location_id);
-      }
-
-      // Apply date range filters
-      if (dateRange.from) {
-        query = query.gte('created_at', format(dateRange.from, 'yyyy-MM-dd'));
-      }
-      
-      if (dateRange.to) {
-        // Add one day to include the end date
-        const nextDay = new Date(dateRange.to);
-        nextDay.setDate(nextDay.getDate() + 1);
-        query = query.lt('created_at', format(nextDay, 'yyyy-MM-dd'));
-      }
-
-      // Search through details (JSON field)
-      if (filters.search) {
-        // This is a simplified approach - in reality, searching JSON is more complex
-        query = query.or(`details.ilike.%${filters.search}%`);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      
-      // Fetch user and location data separately
-      const logsWithDetails = await Promise.all((data || []).map(async (log) => {
-        let userData = { name: 'Unknown User', email: 'unknown' };
-        let locationData = { name: 'Unknown Location' };
-        
-        // Fetch user info if available
-        if (log.user_id) {
-          const { data: userInfo } = await supabase
-            .from('profiles')
-            .select('name, email')
-            .eq('id', log.user_id)
-            .single();
-            
-          if (userInfo) {
-            userData = userInfo;
+      const applyFilters = (query: any) => {
+        if (filters.entity_type !== 'all') query = query.eq('entity_type', filters.entity_type);
+        if (filters.action !== 'all') query = query.eq('action', filters.action);
+        if (filters.location_id !== 'all') query = query.eq('location_id', filters.location_id);
+        if (dateRange.from) query = query.gte('created_at', format(dateRange.from, 'yyyy-MM-dd'));
+        if (dateRange.to) {
+          const nextDay = new Date(dateRange.to);
+          nextDay.setDate(nextDay.getDate() + 1);
+          query = query.lt('created_at', format(nextDay, 'yyyy-MM-dd'));
+        }
+        if (filters.search) {
+          const term = filters.search.replace(/[%,()]/g, ' ').trim();
+          if (term) {
+            query = query.or(
+              [
+                `action.ilike.%${term}%`,
+                `entity_id.ilike.%${term}%`,
+                `details->>name.ilike.%${term}%`,
+                `details->>item_name.ilike.%${term}%`,
+                `details->>order_number.ilike.%${term}%`,
+                `details->>reason.ilike.%${term}%`,
+              ].join(',')
+            );
           }
         }
-        
-        // Fetch location info if available
-        if (log.location_id) {
-          const { data: locationInfo } = await supabase
-            .from('locations')
-            .select('name')
-            .eq('id', log.location_id)
-            .single();
-            
-          if (locationInfo) {
-            locationData = locationInfo;
-          }
-        }
-        
-        return {
-          ...log,
-          user: userData,
-          location: locationData
-        };
-      }));
-      
-      // Cast as ActivityLog[] type
-      setLogs(logsWithDetails as ActivityLog[]);
+        return query.order('created_at', { ascending: false }).limit(PAGE_SIZE);
+      };
+
+      let { data, error } = await applyFilters(
+        supabase.from('activity_logs').select('*, user:profiles(name, email), location:locations(name)')
+      );
+
+      if (error) {
+        const retry = await applyFilters(supabase.from('activity_logs').select('*'));
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      }
+
+      setLogs((data || []) as unknown as ActivityLog[]);
     } catch (error: any) {
       console.error('Error fetching activity logs:', error);
       toast.error('Failed to load activity logs', {
@@ -215,85 +196,57 @@ export default function ActivityLogsPage() {
 
   const formatLogDetails = (log: ActivityLog) => {
     try {
-      if (!log.details) return 'No details available';
-      
-      const { before, after, reason, ...otherDetails } = log.details;
+      const details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+      if (!details) return 'No details available';
 
-      // Format for different entity types
-      switch (log.entity_type) {
-        case 'inventory_items':
-          if (log.action === 'create') {
-            return `Created item "${after?.name}" with initial stock of ${after?.opening_stock || 0}`;
-          } else if (log.action === 'update') {
-            if (before && after) {
-              const changes = [];
-              
-              if (before.name !== after.name) {
-                changes.push(`name from "${before.name}" to "${after.name}"`);
-              }
-              
-              if (before.cost_per_unit !== after.cost_per_unit) {
-                changes.push(`cost from $${before.cost_per_unit} to $${after.cost_per_unit}`);
-              }
-              
-              if (before.min_stock_threshold !== after.min_stock_threshold) {
-                changes.push(`minimum stock from ${before.min_stock_threshold} to ${after.min_stock_threshold}`);
-              }
-              
-              if (changes.length > 0) {
-                return `Updated ${changes.join(', ')}`;
-              }
-              
-              return 'Updated item properties';
-            }
-            return 'Updated item';
-          } else if (log.action === 'delete') {
-            return `Deleted item "${before?.name}"`;
-          }
-          break;
-          
-        case 'stock_requests':
-          if (log.action === 'create') {
-            return `Requested ${after?.requested_quantity} units of item from ${log.details?.from_location_name} to ${log.details?.to_location_name}`;
-          } else if (log.action === 'update' || log.action === 'fulfill') {
-            return `Fulfilled stock request with ${after?.dispatched_quantity} units`;
-          } else if (log.action === 'reject') {
-            return `Rejected stock request with reason: ${reason || 'No reason provided'}`;
-          }
-          break;
-          
-        case 'stock_entries':
-          if (after?.closing_stock !== undefined && before?.closing_stock !== undefined) {
-            const change = after.closing_stock - before.closing_stock;
-            const changeType = change > 0 ? 'increased' : 'decreased';
-            return `Stock ${changeType} by ${Math.abs(change)} units. Reason: ${reason || 'Not specified'}`;
-          }
-          return `Updated stock entry`;
-          
-        case 'profiles':
-          if (log.action === 'create') {
-            return `Created user "${after?.name}" with role ${after?.role}`;
-          } else if (log.action === 'update') {
-            const changes = [];
-            if (before?.role !== after?.role) {
-              changes.push(`role from "${before?.role}" to "${after?.role}"`);
-            }
-            if (before?.location_id !== after?.location_id) {
-              changes.push(`location assignment`);
-            }
-            return `Updated user: ${changes.join(', ')}`;
-          } else if (log.action === 'delete') {
-            return `Deleted user "${before?.name}"`;
-          }
-          break;
-          
-        default:
-          // For other entity types or when details structure is unknown
-          return JSON.stringify(log.details);
+      const name = details.name || details.item_name;
+
+      // Server-side audit triggers: created / updated / deleted with a diff.
+      if (log.action === 'created') {
+        return `Created ${name ? `"${name}"` : ENTITY_LABELS[log.entity_type as LogEntityType]?.toLowerCase() || log.entity_type}`;
       }
-      
-      // Fallback for unknown combinations
-      return JSON.stringify(log.details);
+      if (log.action === 'deleted') {
+        return `Deleted ${name ? `"${name}"` : log.entity_type}`;
+      }
+      if (log.action === 'updated' && details.changes) {
+        const changes = Object.entries(details.changes as Record<string, { from: unknown; to: unknown }>)
+          .filter(([key]) => !['cost_per_item'].includes(key) || log.entity_type !== 'pos_item')
+          .map(([key, change]) => {
+            const fmt = (v: unknown) =>
+              key === 'price' && typeof v === 'number' ? formatCurrency(v) : v === null || v === undefined ? 'empty' : String(v);
+            return `${key.replace(/_/g, ' ')}: ${fmt(change.from)} -> ${fmt(change.to)}`;
+          });
+        return `${name ? `"${name}": ` : ''}${changes.join('; ') || 'updated'}`;
+      }
+
+      switch (log.action) {
+        case 'order_created':
+          return `Order ${details.order_number} (${details.order_type}, ${details.payment_method}) for ${formatCurrency(details.total_amount ?? 0)}${
+            Array.isArray(details.unlinked_items) && details.unlinked_items.length
+              ? ` - no stock moved for ${details.unlinked_items.join(', ')}`
+              : ''
+          }`;
+        case 'order_status_changed':
+          return `Order ${details.order_number}: ${details.from} -> ${details.to}`;
+        case 'order_cancelled':
+          return `Order ${details.order_number} cancelled${details.stock_restored ? ' (stock restored)' : ''}${
+            details.reason ? `. Reason: ${details.reason}` : ''
+          }`;
+        case 'stock_adjusted':
+          return `${details.item_name ?? 'Item'}: ${details.movement_type?.replace(/_/g, ' ')} ${
+            details.quantity > 0 ? '+' : ''
+          }${details.quantity} (now ${details.closing_stock})${details.notes ? `. ${details.notes}` : ''}`;
+        case 'stock_transferred':
+          return `Transferred ${details.quantity} of ${details.item_name ?? 'item'}${details.notes ? `. ${details.notes}` : ''}`;
+        case 'request_fulfilled':
+        case 'request_partially_fulfilled':
+          return `Dispatched ${details.quantity} (${details.dispatched_quantity}/${details.requested_quantity} so far)`;
+        default:
+          if (log.action?.startsWith('staff.')) {
+            return `${log.action.replace('staff.', '').replace(/_/g, ' ')} ${details.email ?? details.name ?? details.id ?? ''}`;
+          }
+          return JSON.stringify(details);
+      }
     } catch (error) {
       console.error('Error formatting log details:', error);
       return 'Error displaying details';
@@ -301,39 +254,44 @@ export default function ActivityLogsPage() {
   };
 
   const getActionBadgeColor = (action: string) => {
-    switch (action) {
-      case 'create':
-        return 'bg-green-500';
-      case 'update':
-        return 'bg-blue-500';
-      case 'delete':
-        return 'bg-red-500';
-      case 'fulfill':
-        return 'bg-green-600';
-      case 'reject':
-        return 'bg-amber-500';
-      case 'dispatch':
-        return 'bg-violet-500';
-      default:
-        return 'bg-gray-500';
-    }
+    if (action === 'created' || action === 'order_created' || action.startsWith('request_fulfilled')) return 'bg-green-600';
+    if (action === 'updated' || action === 'order_status_changed') return 'bg-blue-500';
+    if (action === 'deleted' || action === 'order_cancelled') return 'bg-red-500';
+    if (action.startsWith('stock_')) return 'bg-indigo-500';
+    if (action.startsWith('request_')) return 'bg-violet-500';
+    if (action.startsWith('staff.')) return 'bg-amber-600';
+    return 'bg-gray-500';
   };
 
   const getEntityBadgeColor = (entityType: string) => {
     switch (entityType) {
+      case 'inventory_item':
       case 'inventory_items':
+      case 'category':
         return 'bg-emerald-500';
+      case 'stock_request':
       case 'stock_requests':
+      case 'transfer':
         return 'bg-blue-600';
+      case 'stock_entry':
       case 'stock_entries':
         return 'bg-indigo-500';
+      case 'recipe':
       case 'recipes':
+      case 'recipe_item':
         return 'bg-pink-500';
+      case 'profile':
       case 'profiles':
         return 'bg-amber-600';
+      case 'location':
       case 'locations':
+      case 'settings':
         return 'bg-teal-500';
+      case 'pos_sale':
       case 'sales':
+      case 'pos_item':
+      case 'pos_category':
+      case 'discount_rule':
         return 'bg-purple-600';
       default:
         return 'bg-gray-500';
@@ -364,12 +322,14 @@ export default function ActivityLogsPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="w-full overflow-x-auto flex-wrap">
           <TabsTrigger value="all">All Activities</TabsTrigger>
-          <TabsTrigger value="inventory_items">Inventory</TabsTrigger>
-          <TabsTrigger value="stock_requests">Stock Requests</TabsTrigger>
-          <TabsTrigger value="profiles">Users</TabsTrigger>
-          <TabsTrigger value="recipes">Recipes</TabsTrigger>
-          <TabsTrigger value="locations">Locations</TabsTrigger>
-          <TabsTrigger value="sales">Sales</TabsTrigger>
+          <TabsTrigger value="pos_sale">Orders</TabsTrigger>
+          <TabsTrigger value="stock_entry">Stock</TabsTrigger>
+          <TabsTrigger value="stock_request">Requests</TabsTrigger>
+          <TabsTrigger value="transfer">Transfers</TabsTrigger>
+          <TabsTrigger value="inventory_item">Inventory</TabsTrigger>
+          <TabsTrigger value="pos_item">Menu</TabsTrigger>
+          <TabsTrigger value="recipe">Recipes</TabsTrigger>
+          <TabsTrigger value="profile">Users</TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">
@@ -445,13 +405,13 @@ export default function ActivityLogsPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Badge className={cn("capitalize", getActionBadgeColor(log.action))}>
-                              {log.action}
+                            <Badge className={cn("capitalize whitespace-nowrap", getActionBadgeColor(log.action))}>
+                              {log.action.replace(/^staff\./, 'staff ').replace(/_/g, ' ')}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={cn("capitalize", getEntityBadgeColor(log.entity_type))}>
-                              {log.entity_type.replace('_', ' ')}
+                            <Badge variant="outline" className={cn("whitespace-nowrap", getEntityBadgeColor(log.entity_type))}>
+                              {ENTITY_LABELS[log.entity_type as LogEntityType] ?? log.entity_type.replace(/_/g, ' ')}
                             </Badge>
                           </TableCell>
                           <TableCell className="max-w-md">
@@ -532,13 +492,11 @@ export default function ActivityLogsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="inventory_items">Inventory Items</SelectItem>
-                    <SelectItem value="stock_requests">Stock Requests</SelectItem>
-                    <SelectItem value="stock_entries">Stock Entries</SelectItem>
-                    <SelectItem value="recipes">Recipes</SelectItem>
-                    <SelectItem value="profiles">Users</SelectItem>
-                    <SelectItem value="locations">Locations</SelectItem>
-                    <SelectItem value="sales">Sales</SelectItem>
+                    {ENTITY_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {ENTITY_LABELS[type]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -556,12 +514,11 @@ export default function ActivityLogsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Actions</SelectItem>
-                    <SelectItem value="create">Create</SelectItem>
-                    <SelectItem value="update">Update</SelectItem>
-                    <SelectItem value="delete">Delete</SelectItem>
-                    <SelectItem value="fulfill">Fulfill</SelectItem>
-                    <SelectItem value="reject">Reject</SelectItem>
-                    <SelectItem value="dispatch">Dispatch</SelectItem>
+                    {ACTION_OPTIONS.map((action) => (
+                      <SelectItem key={action} value={action} className="capitalize">
+                        {action.replace(/_/g, ' ')}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

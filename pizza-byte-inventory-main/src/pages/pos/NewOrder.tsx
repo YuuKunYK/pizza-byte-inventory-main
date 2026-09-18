@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Search, X } from 'lucide-react';
+import { Search, ArrowLeft } from 'lucide-react';
 import { CategoryGrid } from '@/components/pos/CategoryGrid';
 import { ItemGrid } from '@/components/pos/ItemGrid';
 import { OrderSummary } from '@/components/pos/OrderSummary';
@@ -19,6 +19,7 @@ import { POSItemWithDetails, CartItem, POSSale } from '@/types/pos';
 import { toast } from '@/hooks/use-toast';
 import { checkPosStockAvailability, formatShortageMessage, summarizeDiscounts } from '@/lib/erp';
 import { useBusinessSettings } from '@/hooks/useBusinessSettings';
+import { useNavigate } from 'react-router-dom';
 
 const getOrderTypeFromUrl = (): 'dining' | 'takeaway' | 'delivery' => {
   const params = new URLSearchParams(window.location.search);
@@ -28,6 +29,7 @@ const getOrderTypeFromUrl = (): 'dining' | 'takeaway' | 'delivery' => {
 
 const NewOrder: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { settings } = useBusinessSettings();
   const orderType = getOrderTypeFromUrl();
 
@@ -69,8 +71,15 @@ const NewOrder: React.FC = () => {
     search: searchQuery || undefined,
     available: true,
   });
-
   const { createSale, isCreating } = usePOSSales();
+
+  const leaveComposer = () => {
+    if (window.opener) {
+      window.close();
+      return;
+    }
+    navigate('/pos');
+  };
 
   const handleItemClick = (item: POSItemWithDetails) => {
     const cartItem: CartItem = {
@@ -176,11 +185,18 @@ const NewOrder: React.FC = () => {
         <Card className="max-w-lg mx-auto p-6 space-y-4">
           <h1 className="text-2xl font-bold">Order {completedSale.order_number}</h1>
           <p className="text-muted-foreground">
-            Sent to the kitchen. Ingredients for linked recipes were deducted from this branch.
+            {completedSale.inventory_deducted
+              ? 'Sent to the kitchen. Stock for every item was deducted from this branch.'
+              : 'Sent to the kitchen. No stock was deducted for this order.'}
           </p>
+          {Array.isArray(completedSale.unlinked_items) && completedSale.unlinked_items.length > 0 && (
+            <p className="text-sm text-destructive">
+              No stock moved for: {completedSale.unlinked_items.join(', ')}. Link these items in POS Items.
+            </p>
+          )}
           <div className="flex gap-2">
             <Button onClick={() => printReceipt()}>Print receipt</Button>
-            <Button variant="outline" onClick={() => window.close()}>
+            <Button variant="outline" onClick={leaveComposer}>
               Close
             </Button>
             <Button
@@ -211,8 +227,8 @@ const NewOrder: React.FC = () => {
             Select dishes. Linked recipes will consume ingredient stock at checkout.
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => window.close()}>
-          <X className="h-5 w-5" />
+        <Button variant="ghost" size="icon" onClick={leaveComposer} aria-label="Back to order board">
+          <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
 

@@ -15,6 +15,7 @@ export interface User {
   role: UserRole | string;
   locationId?: string;
   locationName?: string;
+  locationType?: 'branch' | 'warehouse';
 }
 
 export interface Location {

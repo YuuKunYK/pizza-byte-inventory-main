@@ -21,6 +21,12 @@ export interface POSItem {
   subcategory_id: string | null;
   price: number; // in paisa (PKR cents)
   recipe_id: string | null;
+  /** Direct 1:1 stock link used instead of a recipe (e.g. bottled drinks). */
+  inventory_item_id: string | null;
+  /** Base units of inventory_item_id consumed per unit sold. */
+  inventory_qty: number;
+  /** False for items that legitimately move no stock (service charge, delivery fee). */
+  inventory_tracked: boolean;
   cost_per_item: number; // in paisa
   available: boolean;
   image_url?: string;
@@ -30,12 +36,32 @@ export interface POSItem {
   updated_at: string;
 }
 
+export type POSItemLinkMode = 'recipe' | 'stock_item' | 'untracked';
+
+export const getPOSItemLinkMode = (
+  item: Pick<POSItem, 'recipe_id' | 'inventory_item_id' | 'inventory_tracked'>
+): POSItemLinkMode | 'unlinked' => {
+  if (item.recipe_id) return 'recipe';
+  if (item.inventory_item_id) return 'stock_item';
+  if (item.inventory_tracked === false) return 'untracked';
+  // inventory_tracked only exists after the Phase 0 migration. Until then,
+  // an item without a recipe is the old optional-link behaviour, not an error.
+  if (typeof item.inventory_tracked === 'boolean') return 'unlinked';
+  return 'recipe';
+};
+
 export interface POSItemWithDetails extends POSItem {
   category?: POSCategory;
   subcategory?: POSCategory;
   recipe?: {
     id: string;
     name: string;
+  };
+  inventory_item?: {
+    id: string;
+    name: string;
+    base_unit?: string | null;
+    unit_type?: string | null;
   };
 }
 
@@ -97,6 +123,8 @@ export interface POSSale {
   amount_tendered?: number;
   change_due?: number;
   inventory_deducted?: boolean;
+  /** Tracked items that moved no stock (only populated when policy is allow_with_flag). */
+  unlinked_items?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -176,6 +204,9 @@ export interface CreatePOSItemInput {
   subcategory_id?: string | null;
   price: number;
   recipe_id?: string | null;
+  inventory_item_id?: string | null;
+  inventory_qty?: number;
+  inventory_tracked?: boolean;
   available?: boolean;
   image_url?: string;
   description?: string;

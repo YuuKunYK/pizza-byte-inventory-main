@@ -36,20 +36,16 @@ interface UpdateItemParams {
   manual_conversion_note?: string;
 }
 
+/**
+ * Every stock change goes through the adjust_location_stock RPC so the ledger
+ * (inventory_movements) and the balance (stock_entries) can never disagree.
+ */
 interface UpdateStockParams {
   itemId: string;
   locationId: string;
   quantity: number;
-  movementType: string;
+  movementType: 'warehouse_receiving' | 'local_purchasing' | 'transfer_in' | 'transfer_out' | 'discarded' | string;
   notes?: string;
-  updateData?: {
-    warehouse_receiving?: number;
-    local_purchasing?: number;
-    transfer_in?: number;
-    transfer_out?: number;
-    discarded?: number;
-    closing_stock?: number;
-  };
 }
 
 export const useInventory = () => {
@@ -206,54 +202,24 @@ export const useInventory = () => {
   });
 
   const updateStockMutation = useMutation({
-    mutationFn: async ({ itemId, locationId, quantity, movementType, notes, updateData }: UpdateStockParams) => {
-      if (quantity && movementType) {
-        return adjustLocationStock({
-          itemId,
-          locationId,
-          quantity,
-          movementType,
-          notes,
-        });
+    mutationFn: async ({ itemId, locationId, quantity, movementType, notes }: UpdateStockParams) => {
+      if (!quantity || quantity <= 0) {
+        throw new Error('Quantity must be greater than zero');
       }
-
-      const { data: existingEntry, error: checkError } = await supabase
-        .from('stock_entries')
-        .select('*')
-        .eq('item_id', itemId)
-        .eq('location_id', locationId)
-        .order('date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        throw checkError;
+      if (!movementType) {
+        throw new Error('Choose what kind of stock movement this is');
       }
-
-      if (existingEntry) {
-        const { error } = await supabase
-          .from('stock_entries')
-          .update({
-            ...updateData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingEntry.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('stock_entries').insert({
-          item_id: itemId,
-          location_id: locationId,
-          date: new Date().toISOString().split('T')[0],
-          opening_stock: 0,
-          ...updateData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        if (error) throw error;
-      }
+      return adjustLocationStock({
+        itemId,
+        locationId,
+        quantity,
+        movementType,
+        notes,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory_movements'] });
       setIsUpdateStockDialogOpen(false);
       toast.success('Stock updated successfully');
     },

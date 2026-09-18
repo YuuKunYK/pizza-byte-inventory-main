@@ -138,22 +138,8 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (data) {
           try {
-            // Store notification in activity logs instead since we haven't created the notifications table yet
-            await supabase.from('activity_logs').insert({
-              action: `Stock Request ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)}`,
-              entity_type: 'stock_request',
-              entity_id: stockRequest.id,
-              user_id: user?.id,
-              location_id: user?.locationId,
-              details: JSON.stringify({
-                title: `Stock Request ${newStatus.charAt(0).toUpperCase() + newStatus.slice(1)}`,
-                message: `${data.item?.name || 'Item'} request from ${data.from_location?.name || 'sender'} has been ${newStatus}`,
-                type,
-                is_read: false
-              })
-            });
-            
-            // Mock notification for now
+            // In-app only for now; the status change itself is already in the
+            // activity log via fulfill_stock_request / the request update.
             const mockNotification: Notification = {
               id: Math.random().toString(36).substring(2, 11),
               user_id: user?.id,

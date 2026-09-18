@@ -13,13 +13,52 @@ export interface StockAvailability {
   shortages: StockShortage[];
 }
 
-const rpcMissing = (error: { message?: string; code?: string } | null) => {
+type RpcError = { message?: string; code?: string; details?: string; hint?: string } | null;
+
+/**
+ * Thrown when the database is missing the ERP functions. The register must
+ * refuse to sell in this state: selling without deduction silently corrupts
+ * stock and food cost. Admins see the details on /admin/health.
+ */
+export class ErpNotInstalledError extends Error {
+  readonly rpcName: string;
+
+  constructor(rpcName: string) {
+    super(
+      `Stock engine is not installed (missing database function "${rpcName}"). ` +
+        'Ask an administrator to apply the database migrations before using the register.'
+    );
+    this.name = 'ErpNotInstalledError';
+    this.rpcName = rpcName;
+  }
+}
+
+/** Thrown when the cart contains tracked items with no recipe or stock link. */
+export class UnlinkedItemsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnlinkedItemsError';
+  }
+}
+
+export const isRpcMissingError = (error: RpcError) => {
   const message = error?.message?.toLowerCase() || '';
   return (
     error?.code === 'PGRST202' ||
+    error?.code === '42883' ||
     message.includes('could not find the function') ||
-    message.includes('does not exist')
+    (message.includes('function') && message.includes('does not exist'))
   );
+};
+
+const throwRpcError = (rpcName: string, error: NonNullable<RpcError>): never => {
+  if (isRpcMissingError(error)) {
+    throw new ErpNotInstalledError(rpcName);
+  }
+  if (error.hint === 'unlinked_items' || error.code === 'P0002') {
+    throw new UnlinkedItemsError(error.message || 'Menu items are not linked to stock');
+  }
+  throw new Error(error.message || `${rpcName} failed`);
 };
 
 export const checkPosStockAvailability = async (
@@ -31,17 +70,26 @@ export const checkPosStockAvailability = async (
     p_branch_id: branchId,
   });
 
-  if (error) {
-    if (rpcMissing(error)) {
-      return { ok: true, shortages: [] };
-    }
-    throw error;
-  }
+  if (error) throwRpcError('check_pos_stock_availability', error);
 
   return {
     ok: Boolean(data?.ok),
     shortages: Array.isArray(data?.shortages) ? data.shortages : [],
   };
+};
+
+export interface UnlinkedSaleItem {
+  item_id: string;
+  name: string;
+}
+
+export const listUnlinkedCartItems = async (items: CartItem[]): Promise<UnlinkedSaleItem[]> => {
+  const { data, error } = await supabase.rpc('unlinked_sale_items', { p_items: items });
+  if (error) {
+    if (isRpcMissingError(error)) return [];
+    throwRpcError('unlinked_sale_items', error);
+  }
+  return (data || []) as UnlinkedSaleItem[];
 };
 
 export const createPosOrder = async (input: CreateSaleInput): Promise<POSSale> => {
@@ -67,54 +115,31 @@ export const createPosOrder = async (input: CreateSaleInput): Promise<POSSale> =
   };
 
   const { data, error } = await supabase.rpc('create_pos_order', payload);
-  if (!error) return data as POSSale;
-  if (!rpcMissing(error)) throw error;
-
-  const { data: sale, error: insertError } = await supabase
-    .from('pos_sales')
-    .insert({
-      items: input.items,
-      subtotal: input.subtotal,
-      discount_type: input.discount_type,
-      discount_value: input.discount_value,
-      discount_amount: input.discount_amount,
-      tax: input.tax,
-      total_amount: input.total_amount,
-      profit: input.profit,
-      payment_method: input.payment_method,
-      order_type: input.order_type,
-      branch_id: input.branch_id,
-      cashier_id: input.cashier_id,
-      notes: input.notes,
-      status: input.status ?? 'pending',
-      table_number: input.table_number,
-      customer_name: input.customer_name,
-    })
-    .select()
-    .single();
-
-  if (insertError) throw insertError;
-  return sale as POSSale;
+  if (error) throwRpcError('create_pos_order', error);
+  return data as POSSale;
 };
 
-export const updatePosOrderStatus = async (orderId: string, status: string): Promise<POSSale> => {
-  const { data, error } = await supabase.rpc('update_pos_order_status', {
+export const updatePosOrderStatus = async (
+  orderId: string,
+  status: string,
+  reason?: string
+): Promise<POSSale> => {
+  // Live DBs still have the 2-argument RPC. Try that first so status updates
+  // do not error on every click, then the 3-argument version if it exists.
+  const twoArg = await supabase.rpc('update_pos_order_status', {
     p_order_id: orderId,
     p_status: status,
   });
+  if (!twoArg.error) return twoArg.data as POSSale;
 
-  if (!error) return data as POSSale;
-  if (!rpcMissing(error)) throw error;
+  const threeArg = await supabase.rpc('update_pos_order_status', {
+    p_order_id: orderId,
+    p_status: status,
+    p_reason: reason ?? null,
+  });
+  if (!threeArg.error) return threeArg.data as POSSale;
 
-  const { data: sale, error: updateError } = await supabase
-    .from('pos_sales')
-    .update({ status })
-    .eq('id', orderId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-  return sale as POSSale;
+  throwRpcError('update_pos_order_status', threeArg.error || twoArg.error);
 };
 
 export const adjustLocationStock = async (params: {
@@ -132,7 +157,7 @@ export const adjustLocationStock = async (params: {
     p_notes: params.notes ?? null,
   });
 
-  if (error) throw error;
+  if (error) throwRpcError('adjust_location_stock', error);
   return Number(data);
 };
 
@@ -142,7 +167,7 @@ export const fulfillStockRequestRpc = async (requestId: string, quantity: number
     p_quantity: quantity,
   });
 
-  if (error) throw error;
+  if (error) throwRpcError('fulfill_stock_request', error);
   return data;
 };
 
@@ -161,7 +186,7 @@ export const transferStockRpc = async (params: {
     p_notes: params.notes ?? null,
   });
 
-  if (error) throw error;
+  if (error) throwRpcError('transfer_stock', error);
   return data;
 };
 

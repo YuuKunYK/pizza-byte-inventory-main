@@ -78,9 +78,15 @@ export const usePOSSales = (filters?: SalesFilters) => {
       queryClient.invalidateQueries({ queryKey: ['pos_analytics'] });
       queryClient.invalidateQueries({ queryKey: ['stock_entries'] });
       queryClient.invalidateQueries({ queryKey: ['inventory_movements'] });
+      const unlinked = Array.isArray(data.unlinked_items) ? data.unlinked_items : [];
       toast({
         title: 'Order placed',
-        description: `Order ${data.order_number} saved and ingredients deducted from this branch.`,
+        description: unlinked.length
+          ? `Order ${data.order_number} saved. Warning: no stock moved for ${unlinked.join(', ')}.`
+          : data.inventory_deducted
+            ? `Order ${data.order_number} saved and stock deducted from this branch.`
+            : `Order ${data.order_number} saved.`,
+        variant: unlinked.length ? 'destructive' : undefined,
       });
     },
     onError: (error: Error) => {

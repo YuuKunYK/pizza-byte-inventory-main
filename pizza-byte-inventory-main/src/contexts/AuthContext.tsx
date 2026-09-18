@@ -28,6 +28,7 @@ const mapProfile = (userId: string, email: string, profile: any, metadata: Recor
     role: role || UserRole.BRANCH,
     locationId: profile?.location_id || metadata.location_id || undefined,
     locationName: profile?.locations?.name,
+    locationType: profile?.locations?.type,
     createdAt: profile?.created_at || new Date().toISOString(),
     updatedAt: profile?.updated_at || new Date().toISOString(),
   };
@@ -42,11 +43,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const loadUser = useCallback(async (userId: string, email?: string, metadata: Record<string, any> = {}) => {
-    const { data: profile } = await supabase
+    let { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('*, locations(name)')
+      .select('*, locations(name, type)')
       .eq('id', userId)
       .maybeSingle();
+
+    if (profileError || !profile) {
+      const fallback = await supabase
+        .from('profiles')
+        .select('*, locations(name)')
+        .eq('id', userId)
+        .maybeSingle();
+      profile = fallback.data;
+    }
+
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut();
+      setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+      toast.error('Account deactivated', {
+        description: 'This account has been deactivated. Contact an administrator.',
+      });
+      return null;
+    }
 
     const user = mapProfile(userId, email || '', profile, metadata);
     setAuthState({
@@ -97,7 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    await loadUser(data.user.id, data.user.email || '', data.user.user_metadata || {});
+    const loaded = await loadUser(data.user.id, data.user.email || '', data.user.user_metadata || {});
+    if (!loaded) return false;
     toast.success('Login Successful');
     return true;
   };

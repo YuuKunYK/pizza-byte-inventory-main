@@ -2,7 +2,7 @@
 -- Migration: 20250127_add_flavor_tags.sql
 
 -- Add 'flavor' to the tag_category enum
-ALTER TYPE tag_category ADD VALUE 'flavor';
+ALTER TYPE tag_category ADD VALUE IF NOT EXISTS 'flavor';
 
 -- Insert predefined flavor tags
 INSERT INTO public.recipe_tags (name, category, color, description) VALUES
