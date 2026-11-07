@@ -6,6 +6,8 @@ import { useAuth } from './useAuth';
 import { UnitType, BaseUnitType } from '@/types/inventory';
 import { adjustLocationStock } from '@/lib/erp';
 import { UserRole } from '@/types/auth';
+import { isDemoMode } from '@/demo/demoMode';
+import { getDemoStore } from '@/demo/demoStore';
 
 interface CreateItemParams {
   name: string;
@@ -64,6 +66,9 @@ export const useInventory = () => {
   } = useQuery({
     queryKey: ['inventory_items'],
     queryFn: async () => {
+      if (isDemoMode()) {
+        return getDemoStore().inventoryItems;
+      }
       const { data, error } = await supabase
         .from('inventory_items')
         .select(`
@@ -89,6 +94,9 @@ export const useInventory = () => {
   } = useQuery({
     queryKey: ['categories'],
     queryFn: async () => {
+      if (isDemoMode()) {
+        return getDemoStore().categories;
+      }
       const { data, error } = await supabase
         .from('categories')
         .select('*')
@@ -105,6 +113,9 @@ export const useInventory = () => {
   } = useQuery({
     queryKey: ['locations'],
     queryFn: async () => {
+      if (isDemoMode()) {
+        return getDemoStore().locations;
+      }
       const { data, error } = await supabase
         .from('locations')
         .select('*')
@@ -123,6 +134,16 @@ export const useInventory = () => {
   } = useQuery({
     queryKey: ['stock_entries', user?.locationId, selectedLocation],
     queryFn: async () => {
+      if (isDemoMode()) {
+        const entries = getDemoStore().stockEntries;
+        if (user?.role !== UserRole.ADMIN) {
+          return entries.filter((e) => e.location_id === user?.locationId);
+        }
+        if (selectedLocation && selectedLocation !== 'all') {
+          return entries.filter((e) => e.location_id === selectedLocation);
+        }
+        return entries;
+      }
       try {
         let query = supabase
           .from('stock_entries')

@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { UserRole } from '@/types/auth';
+import { isDemoMode } from '@/demo/demoMode';
+import { DEMO_LABEL } from '@/demo/demoSeed';
 
 interface SidebarItemProps {
   icon: React.ElementType;
@@ -201,6 +203,14 @@ const Layout = ({ children }: LayoutProps) => {
         )}
       >
         <div className="container mx-auto p-6">
+          {isDemoMode() && (
+            <div
+              role="status"
+              className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-950 dark:text-amber-100"
+            >
+              {DEMO_LABEL} — local persisted portfolio session; no live Supabase or production data.
+            </div>
+          )}
           {children}
         </div>
       </main>
