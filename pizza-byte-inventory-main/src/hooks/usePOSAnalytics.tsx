@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { POSAnalytics, SalesFilters } from '@/types/pos';
 import { getTodayRange } from '@/lib/pos-utils';
+import { isDemoMode } from '@/demo/demoMode';
+import { getDemoStore } from '@/demo/demoStore';
 
 /**
  * Hook to fetch POS analytics data
@@ -15,30 +17,61 @@ export const usePOSAnalytics = (filters?: SalesFilters) => {
   } = useQuery<POSAnalytics>({
     queryKey: ['pos_analytics', filters],
     queryFn: async () => {
-      // Build query with filters
-      let query = supabase.from('pos_sales').select('*');
+      let countable: Array<{
+        status: string;
+        total_amount: number;
+        profit: number;
+        order_type: string;
+        payment_method: string;
+        items?: Array<{
+          item_id: string;
+          name: string;
+          quantity: number;
+          cost: number;
+          total: number;
+        }>;
+      }>;
 
-      if (filters?.startDate) {
-        query = query.gte('created_at', filters.startDate);
+      if (isDemoMode()) {
+        let sales = getDemoStore().posSales;
+        if (filters?.branch_id) {
+          sales = sales.filter((s) => s.branch_id === filters.branch_id);
+        }
+        if (filters?.startDate) {
+          sales = sales.filter((s) => s.created_at >= filters.startDate!);
+        }
+        if (filters?.endDate) {
+          sales = sales.filter((s) => s.created_at <= filters.endDate!);
+        }
+        if (filters?.order_type) {
+          sales = sales.filter((s) => s.order_type === filters.order_type);
+        }
+        countable = sales.filter((sale) => sale.status !== 'cancelled');
+      } else {
+        let query = supabase.from('pos_sales').select('*');
+
+        if (filters?.startDate) {
+          query = query.gte('created_at', filters.startDate);
+        }
+
+        if (filters?.endDate) {
+          query = query.lte('created_at', filters.endDate);
+        }
+
+        if (filters?.branch_id) {
+          query = query.eq('branch_id', filters.branch_id);
+        }
+
+        if (filters?.order_type) {
+          query = query.eq('order_type', filters.order_type);
+        }
+
+        const { data: sales, error } = await query;
+
+        if (error) throw error;
+
+        countable = (sales || []).filter((sale) => sale.status !== 'cancelled');
       }
-
-      if (filters?.endDate) {
-        query = query.lte('created_at', filters.endDate);
-      }
-
-      if (filters?.branch_id) {
-        query = query.eq('branch_id', filters.branch_id);
-      }
-
-      if (filters?.order_type) {
-        query = query.eq('order_type', filters.order_type);
-      }
-
-      const { data: sales, error } = await query;
-
-      if (error) throw error;
-
-      const countable = (sales || []).filter((sale) => sale.status !== 'cancelled');
 
       // Calculate analytics from sales data
       const totalRevenue = countable.reduce((sum, sale) => sum + sale.total_amount, 0);
@@ -197,25 +230,52 @@ export const useSalesTrends = (filters?: SalesFilters) => {
   } = useQuery({
     queryKey: ['pos_sales_trends', filters],
     queryFn: async () => {
-      let query = supabase.from('pos_sales').select('created_at, total_amount, profit, order_type');
+      let data: Array<{
+        created_at: string;
+        total_amount: number;
+        profit: number;
+        order_type: string;
+      }>;
 
-      if (filters?.startDate) {
-        query = query.gte('created_at', filters.startDate);
+      if (isDemoMode()) {
+        let sales = getDemoStore().posSales;
+        if (filters?.startDate) {
+          sales = sales.filter((s) => s.created_at >= filters.startDate!);
+        }
+        if (filters?.endDate) {
+          sales = sales.filter((s) => s.created_at <= filters.endDate!);
+        }
+        if (filters?.branch_id) {
+          sales = sales.filter((s) => s.branch_id === filters.branch_id);
+        }
+        data = sales.map((s) => ({
+          created_at: s.created_at,
+          total_amount: s.total_amount,
+          profit: s.profit,
+          order_type: s.order_type,
+        }));
+      } else {
+        let query = supabase.from('pos_sales').select('created_at, total_amount, profit, order_type');
+
+        if (filters?.startDate) {
+          query = query.gte('created_at', filters.startDate);
+        }
+
+        if (filters?.endDate) {
+          query = query.lte('created_at', filters.endDate);
+        }
+
+        if (filters?.branch_id) {
+          query = query.eq('branch_id', filters.branch_id);
+        }
+
+        query = query.order('created_at', { ascending: true });
+
+        const { data: remote, error } = await query;
+
+        if (error) throw error;
+        data = remote || [];
       }
-
-      if (filters?.endDate) {
-        query = query.lte('created_at', filters.endDate);
-      }
-
-      if (filters?.branch_id) {
-        query = query.eq('branch_id', filters.branch_id);
-      }
-
-      query = query.order('created_at', { ascending: true });
-
-      const { data, error } = await query;
-
-      if (error) throw error;
 
       // Group by date
       const dateMap = new Map<

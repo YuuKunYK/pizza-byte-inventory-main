@@ -29,6 +29,8 @@ import { ArrowLeftRight, Loader2 } from 'lucide-react';
 import { formatDateTime } from '@/lib/pos-utils';
 import { UserRole } from '@/types/auth';
 import { describeConversion, formatStock, formatUnitLabel, getBaseUnit, quantityToBase } from '@/lib/units';
+import { isDemoMode } from '@/demo/demoMode';
+import { getDemoStore } from '@/demo/demoStore';
 
 const Transfers = () => {
   const { user } = useAuth();
@@ -45,6 +47,9 @@ const Transfers = () => {
   const { data: movements = [], isLoading: isLoadingMovements } = useQuery({
     queryKey: ['inventory_movements'],
     queryFn: async () => {
+      if (isDemoMode()) {
+        return getDemoStore().inventoryMovements;
+      }
       const { data, error } = await supabase
         .from('inventory_movements')
         .select('*, inventory_items(name), locations(name)')

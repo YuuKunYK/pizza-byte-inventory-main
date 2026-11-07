@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
+import { isDemoMode } from '@/demo/demoMode';
+import { DEMO_LABEL } from '@/demo/demoSeed';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -35,7 +37,9 @@ const Login = () => {
           </div>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>
-            Use the account your administrator created for this location.
+            {isDemoMode()
+              ? `${DEMO_LABEL}. Any email/password signs in with synthetic data.`
+              : 'Use the account your administrator created for this location.'}
           </CardDescription>
         </CardHeader>
         <CardContent>

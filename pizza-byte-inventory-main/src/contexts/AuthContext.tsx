@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthState, LoginCredentials, User, UserRole } from '@/types/auth';
 import { toast } from '@/components/ui/sonner';
+import { isDemoMode } from '@/demo/demoMode';
+import { demoAdminUser } from '@/demo/demoSeed';
+import { ensureDemoStore } from '@/demo/demoStore';
 
 interface AuthContextValue extends AuthState {
   login: (credentials: LoginCredentials) => Promise<boolean>;
@@ -77,6 +80,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isDemoMode()) {
+      ensureDemoStore();
+      setAuthState({
+        user: demoAdminUser,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session?.user) {
         setAuthState({ user: null, isAuthenticated: false, isLoading: false });
@@ -107,6 +120,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUser]);
 
   const login = async ({ email, password }: LoginCredentials) => {
+    if (isDemoMode()) {
+      ensureDemoStore();
+      setAuthState({
+        user: { ...demoAdminUser, email: email || demoAdminUser.email },
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      toast.success('Demo session', {
+        description: 'Local portfolio data — not connected to Supabase.',
+      });
+      return true;
+    }
+
     setAuthState((prev) => ({ ...prev, isLoading: true }));
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -123,6 +149,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    if (isDemoMode()) {
+      setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+      toast.success('Demo session ended');
+      navigate('/login', { replace: true });
+      return;
+    }
     await supabase.auth.signOut();
     setAuthState({ user: null, isAuthenticated: false, isLoading: false });
     toast.success('Logged out successfully');
